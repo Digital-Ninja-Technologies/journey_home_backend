@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    "strict": true,
+
+    "moduleResolution": "node",
+
+    "esModuleInterop": true,
+
+    "skipLibCheck": true,
+
+    "resolveJsonModule": true,
+
+    "allowSyntheticDefaultImports": true,
+
+    "forceConsistentCasingInFileNames": true,
+
+    "baseUrl": "./src",
+
+    "paths": {
+      "@/*": ["*"],
+      "@config/*": ["config/*"],
+      "@common/*": ["common/*"],
+      "@database/*": ["database/*"],
+      "@modules/*": ["modules/*"],
+      "@integrations/*": ["integrations/*"]
+    }
+  },
+
+  "include": ["src"],
+
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/db/postgres.ts",
+    "src/modules/controllers",
+    "src/modules/models"
+  ]
+}
