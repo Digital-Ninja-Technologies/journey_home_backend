@@ -11,6 +11,12 @@ export interface AddAdminDto {
   name?: string;
 }
 
+export interface SignupDto {
+  email: string;
+  password: string;
+  name: string;
+}
+
 export interface ChangePasswordDto {
   adminId?: string;
   email?: string;

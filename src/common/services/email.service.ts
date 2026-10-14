@@ -1,8 +1,17 @@
 import axios from "axios";
 import { env } from "../../config/application";
 import { User, UserRole } from "../../modules/auth/models/auth.model";
-import { IEnquiry, EnquiryType } from "../../modules/enquiry/models/enquiry.model";
 import { logger } from "../logger/logger";
+
+interface BasicEnquiry {
+  type?: string;
+  source?: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  details?: any;
+  createdAt?: Date;
+}
 
 export class EmailService {
  
@@ -30,7 +39,7 @@ export class EmailService {
     }
   }
 
-  async notifySuperAdminsOfEnquiry(enquiry: IEnquiry): Promise<void> {
+  async notifySuperAdminsOfEnquiry(enquiry: BasicEnquiry): Promise<void> {
     try {
       //Get Super Admin emails from Database
       const superAdmins = await User.find({
@@ -60,7 +69,7 @@ export class EmailService {
       }
 
       //Compile HTML template
-      const subject = `[Gavikina Energy] New ${enquiry.type.toUpperCase()} Enquiry Received: ${enquiry.name}`;
+      const subject = `[Gavikina Energy] New ${(enquiry.type || "general").toUpperCase()} Enquiry Received: ${enquiry.name}`;
       const html = this.generateEnquiryEmailTemplate(enquiry);
 
       //Dispatch email to each super admin recipient
@@ -77,7 +86,7 @@ export class EmailService {
     }
   }
 
-  public generateEnquiryEmailTemplate(enquiry: IEnquiry): string {
+  public generateEnquiryEmailTemplate(enquiry: BasicEnquiry): string {
     const formattedType = enquiry.type
       ? enquiry.type.toUpperCase()
       : "GENERAL";
@@ -99,7 +108,7 @@ export class EmailService {
     if (enquiry.details) {
       const details = enquiry.details as any;
 
-      if (enquiry.type === EnquiryType.CUSTOMER) {
+        if (enquiry.type === "customer") {
         const appliancesList = Array.isArray(details.appliances)
           ? details.appliances
               .map(
@@ -132,7 +141,7 @@ export class EmailService {
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Payment Preference:</strong> ${details.paymentPreference || "Not specified"}</td>
           </tr>
         `;
-      } else if (enquiry.type === EnquiryType.AGENT) {
+      } else if (enquiry.type === "agent") {
         detailsHtml = `
           <tr>
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Territory:</strong> ${details.territory || "N/A"}</td>
@@ -144,13 +153,13 @@ export class EmailService {
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Why Join:</strong> ${details.whyJoin || "N/A"}</td>
           </tr>
         `;
-      } else if (enquiry.type === EnquiryType.INVESTOR) {
+      } else if (enquiry.type === "investor") {
         detailsHtml = `
           <tr>
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Looking For:</strong> ${details.whatAreYouLookingFor || "N/A"}</td>
           </tr>
         `;
-      } else if (enquiry.type === EnquiryType.CAREERS) {
+      } else if (enquiry.type === "careers") {
         detailsHtml = `
           <tr>
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Role Applied For:</strong> ${details.roleAppliedFor || "N/A"}</td>
@@ -161,7 +170,7 @@ export class EmailService {
           <tr>
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Location:</strong> ${details.location || "N/A"}</td>
         `;
-      } else if (enquiry.type === EnquiryType.CONTACT) {
+      } else if (enquiry.type === "contact") {
         detailsHtml = `
           <tr>
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Message:</strong> ${details.message || "N/A"}</td>

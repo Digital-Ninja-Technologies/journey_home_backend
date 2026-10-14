@@ -12,8 +12,27 @@ export class AuthController {
   login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { email, password } = req.body;
-      const result = await this.authService.loginAdmin({ email, password });
+      const result = await this.authService.login({ email, password });
       successResponse(res, 'Login successful', result, 200);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  signup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await this.authService.signup(req.body);
+      successResponse(res, 'Signup successful', result, 201);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  adminLogin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { email, password } = req.body;
+      const result = await this.authService.loginAdmin({ email, password });
+      successResponse(res, 'Admin login successful', result, 200);
     } catch (error) {
       next(error);
     }

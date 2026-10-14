@@ -1,5 +1,5 @@
 import { UserRepository } from '../repositories/auth.repository';
-import { AddAdminDto, AdminResponseDto, AuthResponseDto, ChangePasswordDto, LoginDto } from '../dto/auth.dto';
+import { AddAdminDto, AdminResponseDto, AuthResponseDto, ChangePasswordDto, LoginDto, SignupDto } from '../dto/auth.dto';
 import { UnauthorizedError } from '../../../common/errors/UnauthorizedError';
 import { NotFoundError } from '../../../common/errors/NotFoundError';
 import { ConflictError } from '../../../common/errors/ConflictError';
@@ -14,6 +14,59 @@ export class AuthService {
 
   constructor() {
     this.userRepo = new UserRepository();
+  }
+
+  private buildAuthResponse(user: any): AuthResponseDto {
+    const isSuperAdmin = Boolean(user.isSuperAdmin || user.role === UserRole.SUPER_ADMIN);
+    const token = generateAccessToken({
+      userId: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      isSuperAdmin,
+    });
+
+    return {
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isSuperAdmin,
+      },
+      token,
+    };
+  }
+
+  async signup(dto: SignupDto): Promise<AuthResponseDto> {
+    const existing = await this.userRepo.findByEmail(dto.email);
+    if (existing) {
+      throw new ConflictError('User with this email already exists');
+    }
+
+    const passwordHash = await hashPassword(dto.password);
+    const user = await this.userRepo.create({
+      email: dto.email.toLowerCase(),
+      passwordHash,
+      role: UserRole.CUSTOMER,
+      isSuperAdmin: false,
+      name: dto.name.trim(),
+    });
+
+    return this.buildAuthResponse(user);
+  }
+
+  async login(loginData: LoginDto): Promise<AuthResponseDto> {
+    const user = await this.userRepo.findByEmail(loginData.email);
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedError('Invalid email or password');
+    }
+
+    const isMatch = await comparePassword(loginData.password, user.passwordHash);
+    if (!isMatch) {
+      throw new UnauthorizedError('Invalid email or password');
+    }
+
+    return this.buildAuthResponse(user);
   }
 
   async loginAdmin(loginData: LoginDto): Promise<AuthResponseDto> {
@@ -36,26 +89,7 @@ export class AuthService {
       throw new UnauthorizedError('Invalid email or password');
     }
 
-    const isSuperAdmin = Boolean(admin.isSuperAdmin || admin.role === UserRole.SUPER_ADMIN);
-
-    // Generate JWT token
-    const token = generateAccessToken({
-      userId: admin._id.toString(),
-      email: admin.email,
-      role: admin.role,
-      isSuperAdmin,
-    });
-
-    return {
-      user: {
-        id: admin._id,
-        email: admin.email,
-        name: admin.name,
-        role: admin.role,
-        isSuperAdmin,
-      },
-      token,
-    };
+    return this.buildAuthResponse(admin);
   }
 
   async addAdmin(dto: AddAdminDto): Promise<AdminResponseDto> {

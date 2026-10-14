@@ -17,6 +17,13 @@ export class UserRepository {
     }).exec();
   }
 
+  async findCustomerByEmail(email: string): Promise<IUser | null> {
+    return User.findOne({
+      email: email.toLowerCase(),
+      role: UserRole.CUSTOMER,
+    }).exec();
+  }
+
   async create(userData: Partial<IUser>): Promise<IUser> {
     const user = new User(userData);
     return user.save();

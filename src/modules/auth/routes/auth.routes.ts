@@ -6,15 +6,28 @@ import {
   LoginValidator,
   AddAdminValidator,
   ChangePasswordValidator,
+  SignupValidator,
 } from '../validators/auth.validator';
 
 const router = Router();
 const authController = new AuthController();
 
 router.post(
+  '/signup',
+  validate(SignupValidator),
+  authController.signup
+);
+
+router.post(
   '/login',
   validate(LoginValidator),
   authController.login
+);
+
+router.post(
+  '/admin/login',
+  validate(LoginValidator),
+  authController.adminLogin
 );
 
 // Add Admin

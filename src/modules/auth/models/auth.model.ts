@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export enum UserRole {
+  CUSTOMER = "customer",
   SUPER_ADMIN = "super_admin",
   ADMIN = "admin",
 }
@@ -31,7 +32,7 @@ const UserSchema = new Schema<IUser>(
       type: String,
       enum: Object.values(UserRole),
       required: true,
-      default: UserRole.ADMIN,
+      default: UserRole.CUSTOMER,
     },
 
     isSuperAdmin: {
