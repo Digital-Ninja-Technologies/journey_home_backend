@@ -5,26 +5,16 @@ import { IPlan, PlanStatus } from "../../plans/models/plan.model";
 import { Plan } from "../../plans/models/plan.model";
 import { PaymentPurpose, PaymentStatus } from "../../payments/models/payment.model";
 import { PaymentService } from "../../payments/services/payment.service";
-import { BillingSchedule, BillingScheduleStatus, IBillingSchedule } from "../models/billing-schedule.model";
+import { BillingScheduleStatus, IBillingSchedule } from "../models/billing-schedule.model";
+import { BillingRepository } from "../repositories/billing.repository";
 import { BillingPolicyService } from "./billing-policy.service";
 import { NotificationEvent } from "../../notifications/models/notification.model";
 import { NotificationService } from "../../notifications/services/notification.service";
 
 export class BillingScheduleService {
+  private repository = new BillingRepository();
   async createInitialSchedule(plan: IPlan, session?: ClientSession): Promise<IBillingSchedule> {
-    const [schedule] = await BillingSchedule.create(
-      [{
-        plan: plan._id,
-        owner: plan.owner,
-        nextDueDate: plan.nextPaymentDate,
-        billingFrequency: "monthly",
-        status: BillingScheduleStatus.PAUSED,
-        retryCount: 0,
-        billingCycle: this.cycleFor(plan.nextPaymentDate),
-      }],
-      { session },
-    );
-    return schedule;
+    return this.repository.createInitialSchedule(plan, session);
   }
 
   cycleFor(date: Date): string {
@@ -32,20 +22,7 @@ export class BillingScheduleService {
   }
 
   async activateForPlan(planId: Types.ObjectId | string, nextDueDate: Date): Promise<void> {
-    await BillingSchedule.updateOne(
-      { plan: planId },
-      {
-        $set: {
-          status: BillingScheduleStatus.ACTIVE,
-          nextDueDate,
-          billingCycle: this.cycleFor(nextDueDate),
-          retryCount: 0,
-          gracePeriodStartedAt: undefined,
-          gracePeriodDeadline: undefined,
-          nextRetryDate: undefined,
-        },
-      },
-    ).exec();
+    await this.repository.activateForPlan(planId, nextDueDate, this.cycleFor(nextDueDate));
   }
 
   async claimDue(limit = 25): Promise<IBillingSchedule[]> {
@@ -53,21 +30,7 @@ export class BillingScheduleService {
     const now = new Date();
     const leaseOwner = uuidv4();
     const leaseExpiresAt = new Date(now.getTime() + 10 * 60 * 1000);
-    const due = await BillingSchedule.find({
-      status: { $in: [BillingScheduleStatus.ACTIVE, BillingScheduleStatus.OVERDUE] },
-      nextDueDate: { $lte: now },
-      $or: [{ leaseExpiresAt: { $exists: false } }, { leaseExpiresAt: { $lte: now } }],
-    }).limit(limit).exec();
-
-    const claimed: IBillingSchedule[] = [];
-    for (const schedule of due) {
-      const result = await BillingSchedule.updateOne(
-        { _id: schedule._id, $or: [{ leaseExpiresAt: { $exists: false } }, { leaseExpiresAt: { $lte: now } }] },
-        { $set: { leaseOwner, leaseExpiresAt, status: BillingScheduleStatus.PROCESSING } },
-      ).exec();
-      if (result.modifiedCount === 1) claimed.push(schedule);
-    }
-    return claimed;
+    return this.repository.claimDue(now, leaseOwner, leaseExpiresAt, limit);
   }
 
   async processDue(limit = 25): Promise<{ attempted: number }> {
@@ -81,9 +44,7 @@ export class BillingScheduleService {
 
   async recordSuccess(schedule: IBillingSchedule, paymentId: Types.ObjectId): Promise<void> {
     const nextDueDate = addOneMonthPreservingBillingDay(schedule.nextDueDate);
-    await BillingSchedule.updateOne(
-      { _id: schedule._id },
-      {
+    await this.repository.updateSchedule(schedule._id, {
         $set: {
           status: BillingScheduleStatus.ACTIVE,
           nextDueDate,
@@ -94,8 +55,7 @@ export class BillingScheduleService {
         },
         $unset: { leaseOwner: "", leaseExpiresAt: "", gracePeriodStartedAt: "", gracePeriodDeadline: "", nextRetryDate: "" },
         $setOnInsert: {},
-      },
-    ).exec();
+      });
   }
 
   async recordFailure(schedule: IBillingSchedule, paymentId: Types.ObjectId): Promise<void> {
@@ -110,9 +70,7 @@ export class BillingScheduleService {
       : undefined;
     const overdue = now >= gracePeriodDeadline || retryCount >= policy.maxRetryAttempts;
 
-    await BillingSchedule.updateOne(
-      { _id: schedule._id },
-      {
+    await this.repository.updateSchedule(schedule._id, {
         $set: {
           status: overdue ? BillingScheduleStatus.OVERDUE : BillingScheduleStatus.ACTIVE,
           currentPaymentAttempt: paymentId,
@@ -124,13 +82,9 @@ export class BillingScheduleService {
           nextDueDate: nextRetryDate || schedule.nextDueDate,
         },
         $unset: { leaseOwner: "", leaseExpiresAt: "" },
-      },
-    ).exec();
+      });
 
-    await Plan.updateOne(
-      { _id: schedule.plan },
-      { $set: { status: overdue ? PlanStatus.OVERDUE : PlanStatus.PAYMENT_DUE } },
-    ).exec();
+    await this.repository.updatePlanStatus(schedule.plan, overdue ? PlanStatus.OVERDUE : PlanStatus.PAYMENT_DUE);
 
     await new NotificationService().record(
       schedule.owner.toString(),

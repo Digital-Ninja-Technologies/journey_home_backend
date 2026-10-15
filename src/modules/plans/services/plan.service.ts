@@ -3,13 +3,15 @@ import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { PackageService } from "../../packages/services/package.service";
 import { BillingScheduleService } from "../../billing/services/billing-schedule.service";
-import { Plan, PlanStatus, IPlan, CoverageStatus } from "../models/plan.model";
+import { PlanStatus, IPlan, CoverageStatus } from "../models/plan.model";
+import { PlanRepository } from "../repositories/plan.repository";
 import { addOneMonthPreservingBillingDay } from "./date.service";
 import { PlanStateService } from "./plan-state.service";
 
 export class PlanService {
   private packages = new PackageService();
   private state = new PlanStateService();
+  private repository = new PlanRepository();
 
   async create(ownerId: string, dto: any): Promise<IPlan> {
     const pkg = await this.packages.getPackage(dto.packageId, false);
@@ -21,8 +23,7 @@ export class PlanService {
     try {
       let plan!: IPlan;
       await session.withTransaction(async () => {
-        const [created] = await Plan.create(
-          [{
+        plan = await this.repository.createWithSession({
             owner: ownerId,
             package: pkg._id,
             packageSnapshot: snapshot,
@@ -37,10 +38,7 @@ export class PlanService {
             nextPaymentDate,
             status: PlanStatus.PENDING,
             coverageStatus: CoverageStatus.PENDING,
-          }],
-          { session },
-        );
-        plan = created;
+          }, session);
         await new BillingScheduleService().createInitialSchedule(plan, session);
       });
       return plan;
@@ -50,23 +48,23 @@ export class PlanService {
   }
 
   async listForOwner(ownerId: string): Promise<IPlan[]> {
-    return Plan.find({ owner: ownerId }).sort({ createdAt: -1 }).exec();
+    return this.repository.listForOwner(ownerId);
   }
 
   async listAll(): Promise<IPlan[]> {
-    return Plan.find().sort({ createdAt: -1 }).exec();
+    return this.repository.listAll();
   }
 
   async getForOwner(planId: string, ownerId: string): Promise<IPlan> {
     if (!Types.ObjectId.isValid(planId)) throw new BadRequestError("Invalid plan id");
-    const plan = await Plan.findOne({ _id: planId, owner: ownerId }).exec();
+    const plan = await this.repository.findForOwner(planId, ownerId);
     if (!plan) throw new NotFoundError("Plan not found");
     return plan;
   }
 
   async getForAdmin(planId: string): Promise<IPlan> {
     if (!Types.ObjectId.isValid(planId)) throw new BadRequestError("Invalid plan id");
-    const plan = await Plan.findById(planId).exec();
+    const plan = await this.repository.findById(planId);
     if (!plan) throw new NotFoundError("Plan not found");
     return plan;
   }
@@ -75,7 +73,7 @@ export class PlanService {
     const plan = await this.getForAdmin(planId);
     this.state.assertTransition(plan.status, status);
     plan.status = status;
-    await plan.save();
+    await this.repository.save(plan);
     return plan;
   }
 }

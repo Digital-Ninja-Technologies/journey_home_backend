@@ -1,45 +1,64 @@
 import { Types } from "mongoose";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
-import { JourneyPackage, IJourneyPackage, IPackageSnapshot } from "../models/package.model";
+import { IJourneyPackage, IPackageSnapshot } from "../models/package.model";
+import { PackageRepository } from "../repositories/package.repository";
 
 export class PackageService {
+  private repository = new PackageRepository();
   async listActive(): Promise<IJourneyPackage[]> {
-    return JourneyPackage.find({ isActive: true }).sort({ createdAt: -1 }).exec();
+    return this.repository.listActive();
   }
 
   async listAll(): Promise<IJourneyPackage[]> {
-    return JourneyPackage.find().sort({ createdAt: -1 }).exec();
+    return this.repository.listAll();
   }
 
-  async getPackage(id: string, includeInactive = false): Promise<IJourneyPackage> {
-    if (!Types.ObjectId.isValid(id)) throw new BadRequestError("Invalid package id");
-    const query = includeInactive ? { _id: id } : { _id: id, isActive: true };
-    const pkg = await JourneyPackage.findOne(query).exec();
+  async getPackage(
+    id: string,
+    includeInactive = false,
+  ): Promise<IJourneyPackage> {
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestError("Invalid package id");
+    const pkg = await this.repository.findById(id, includeInactive);
     if (!pkg) throw new NotFoundError("Package not found");
     return pkg;
   }
 
-  async create(dto: Partial<IJourneyPackage>, adminId: string): Promise<IJourneyPackage> {
-    return JourneyPackage.create({
+  async create(
+    dto: Partial<IJourneyPackage>,
+    adminId: string,
+  ): Promise<IJourneyPackage> {
+    const newAdminId = new Types.ObjectId(adminId);
+    return this.repository.create({
       ...dto,
       currency: (dto.currency || "NGN").toUpperCase(),
-      createdBy: adminId,
-      updatedBy: adminId,
+      createdBy: newAdminId,
+      updatedBy: newAdminId,
     });
   }
 
-  async update(id: string, dto: Partial<IJourneyPackage>, adminId: string): Promise<IJourneyPackage> {
-    if (!Types.ObjectId.isValid(id)) throw new BadRequestError("Invalid package id");
+  async update(
+    id: string,
+    dto: Partial<IJourneyPackage>,
+    adminId: string,
+  ): Promise<IJourneyPackage> {
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestError("Invalid package id");
     const blocked = ["_id", "createdBy", "createdAt", "updatedAt"];
+
     if (Object.keys(dto).some((key) => blocked.includes(key))) {
       throw new BadRequestError("Protected package fields cannot be updated");
     }
-    const pkg = await JourneyPackage.findByIdAndUpdate(
-      id,
-      { ...dto, currency: dto.currency?.toUpperCase(), updatedBy: adminId },
-      { new: true, runValidators: true },
-    ).exec();
+
+    const newAdminId = new Types.ObjectId(adminId);
+
+    const pkg = await this.repository.update(id, {
+      ...dto,
+      currency: dto.currency?.toUpperCase(),
+      updatedBy: newAdminId,
+    });
+
     if (!pkg) throw new NotFoundError("Package not found");
     return pkg;
   }

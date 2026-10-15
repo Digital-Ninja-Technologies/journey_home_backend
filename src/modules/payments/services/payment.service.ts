@@ -3,41 +3,35 @@ import { v4 as uuidv4 } from "uuid";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { env } from "../../../config/application";
-import { User } from "../../auth/models/auth.model";
-import { BillingScheduleStatus, IBillingSchedule } from "../../billing/models/billing-schedule.model";
+import { IBillingSchedule } from "../../billing/models/billing-schedule.model";
 import { BillingScheduleService } from "../../billing/services/billing-schedule.service";
 import { addOneMonthPreservingBillingDay } from "../../plans/services/date.service";
-import { CoverageStatus, Plan, PlanStatus } from "../../plans/models/plan.model";
+import { PlanStatus } from "../../plans/models/plan.model";
 import { NotificationEvent } from "../../notifications/models/notification.model";
 import { NotificationService } from "../../notifications/services/notification.service";
-import { PaymentAuthorization } from "../models/payment-authorization.model";
-import { Payment, PaymentPurpose, PaymentProvider, PaymentStatus, IPayment } from "../models/payment.model";
-import { PaystackEvent } from "../models/paystack-event.model";
+import { PaymentPurpose, PaymentProvider, PaymentStatus, IPayment } from "../models/payment.model";
 import { PaystackService, PaystackTransactionData } from "./paystack.service";
+import { PaymentRepository } from "../repositories/payment.repository";
 
 export class PaymentService {
+  private repository = new PaymentRepository();
   private reference(prefix: string): string {
     return `${prefix}_${uuidv4().replace(/-/g, "")}`;
   }
 
   async initializeInitialCheckout(planId: string, ownerId: string): Promise<{ payment: IPayment; authorizationUrl: string; accessCode: string; reference: string }> {
-    const plan = await Plan.findOne({ _id: planId, owner: ownerId }).exec();
+    const plan = await this.repository.findPlanForOwner(planId, ownerId);
     if (!plan) throw new NotFoundError("Plan not found");
     if (plan.status !== PlanStatus.PENDING) {
       throw new BadRequestError("Initial checkout is only available for pending plans");
     }
-    const user = await User.findById(ownerId).select("email").lean();
+    const user = await this.repository.findUserEmail(ownerId);
     if (!user?.email) throw new BadRequestError("User email is required for payment initialization");
 
-    let payment = await Payment.findOne({
-      plan: plan._id,
-      owner: ownerId,
-      purpose: PaymentPurpose.INITIAL,
-      status: PaymentStatus.PENDING,
-    }).exec();
+    let payment = await this.repository.findReusableInitial(plan._id, ownerId);
 
     if (!payment) {
-      payment = await Payment.create({
+      payment = await this.repository.createPayment({
         owner: ownerId,
         plan: plan._id,
         amountMinor: plan.contributionAmountMinor,
@@ -59,10 +53,7 @@ export class PaymentService {
       metadata: { planId: plan._id.toString(), paymentId: payment._id.toString(), purpose: payment.purpose },
     });
 
-    await Payment.updateOne(
-      { _id: payment._id },
-      { $set: { providerReference: initialized.reference, status: PaymentStatus.PROCESSING } },
-    ).exec();
+    await this.repository.updatePayment(payment._id, { $set: { providerReference: initialized.reference, status: PaymentStatus.PROCESSING } });
     payment.providerReference = initialized.reference;
     payment.status = PaymentStatus.PROCESSING;
 
@@ -81,9 +72,7 @@ export class PaymentService {
 
   async applyProviderTransaction(providerData: PaystackTransactionData): Promise<IPayment> {
     if (!providerData.reference) throw new BadRequestError("Provider reference is missing");
-    const payment = await Payment.findOne({
-      $or: [{ reference: providerData.reference }, { providerReference: providerData.reference }],
-    }).exec();
+    const payment = await this.repository.findByProviderReference(providerData.reference);
     if (!payment) throw new NotFoundError("Payment not found");
     if (payment.status === PaymentStatus.SUCCESSFUL) return payment;
 
@@ -95,36 +84,23 @@ export class PaymentService {
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
-        const current = await Payment.findOne({ _id: payment._id }).session(session).exec();
+        const current = await this.repository.findCurrentPayment(payment._id, session);
         if (!current || current.status === PaymentStatus.SUCCESSFUL) return;
         current.status = successful ? PaymentStatus.SUCCESSFUL : PaymentStatus.FAILED;
         current.providerTransactionId = providerData.id?.toString();
         current.failureMessage = successful ? undefined : providerData.gateway_response;
         current.processedAt = new Date();
         current.metadata = { providerStatus: providerData.status };
-        await current.save({ session });
+        await this.repository.savePayment(current, session);
 
         if (successful) {
-          const plan = await Plan.findById(current.plan).session(session).exec();
+          const plan = await this.repository.findPlanById(current.plan, session);
           if (!plan) throw new NotFoundError("Plan not found");
-          await Plan.updateOne(
-            { _id: plan._id },
-            {
-              $inc: { totalContributedMinor: current.amountMinor },
-              $set: {
-                status: PlanStatus.ACTIVE,
-                coverageStatus: CoverageStatus.COVERED,
-                lastPaymentAt: new Date(),
-                nextPaymentDate: addOneMonthPreservingBillingDay(new Date()),
-              },
-            },
-            { session },
-          ).exec();
+          await this.repository.updatePlanAfterPayment(plan._id, current.amountMinor, addOneMonthPreservingBillingDay(new Date()), session);
           if (providerData.authorization?.authorization_code && providerData.authorization.reusable) {
-            await PaymentAuthorization.updateOne(
+            await this.repository.upsertAuthorization(
               { plan: current.plan, authorizationCode: providerData.authorization.authorization_code },
               {
-                $set: {
                   owner: current.owner,
                   plan: current.plan,
                   provider: "paystack",
@@ -139,10 +115,7 @@ export class PaymentService {
                   expMonth: providerData.authorization.exp_month,
                   expYear: providerData.authorization.exp_year,
                   active: true,
-                },
-              },
-              { upsert: true, session },
-            ).exec();
+              }, session);
           }
         }
       });
@@ -150,7 +123,7 @@ export class PaymentService {
       await session.endSession();
     }
 
-    const updated = await Payment.findById(payment._id).exec();
+    const updated = await this.repository.findById(payment._id);
     if (!updated) throw new NotFoundError("Payment not found");
     const event = updated.purpose === PaymentPurpose.INITIAL
       ? (successful ? NotificationEvent.INITIAL_PAYMENT_SUCCESS : NotificationEvent.INITIAL_PAYMENT_FAILURE)
@@ -170,11 +143,7 @@ export class PaymentService {
     }
     const reference = payload?.data?.reference;
     const eventKey = `${payload?.event || "unknown"}:${reference || payload?.data?.id || uuidv4()}`;
-    const event = await PaystackEvent.findOneAndUpdate(
-      { eventKey },
-      { $setOnInsert: { eventKey, event: payload?.event || "unknown", reference, status: "Processing" } },
-      { upsert: true, new: true, rawResult: false },
-    ).exec();
+    const event = await this.repository.createPaystackEvent(eventKey, payload?.event || "unknown", reference);
     if (!event || event.status === "Processed" || event.status === "Ignored") return { status: "duplicate" };
 
     try {
@@ -182,41 +151,38 @@ export class PaymentService {
         await this.verifyAndApply(reference);
         event.status = "Processed";
       } else if (payload.event === "charge.failed" && reference) {
-        await Payment.updateOne(
-          { $or: [{ reference }, { providerReference: reference }], status: { $ne: PaymentStatus.SUCCESSFUL } },
-          { $set: { status: PaymentStatus.FAILED, failureMessage: payload?.data?.gateway_response, processedAt: new Date() } },
-        ).exec();
+        await this.repository.markProviderFailure(reference, payload?.data?.gateway_response);
         event.status = "Processed";
       } else {
         event.status = "Ignored";
       }
-      await event.save();
+      await this.repository.savePaystackEvent(event);
       return { status: event.status };
     } catch (error: any) {
       event.status = "Failed";
       event.errorMessage = error.message;
-      await event.save();
+      await this.repository.savePaystackEvent(event);
       throw error;
     }
   }
 
   async listForOwner(ownerId: string): Promise<IPayment[]> {
-    return Payment.find({ owner: ownerId }).sort({ createdAt: -1 }).exec();
+    return this.repository.listForOwner(ownerId);
   }
 
   async getForOwner(paymentId: string, ownerId: string): Promise<IPayment> {
-    const payment = await Payment.findOne({ _id: paymentId, owner: ownerId }).exec();
+    const payment = await this.repository.findForOwner(paymentId, ownerId);
     if (!payment) throw new NotFoundError("Payment not found");
     return payment;
   }
 
   async chargeRecurring(schedule: IBillingSchedule): Promise<void> {
-    const plan = await Plan.findById(schedule.plan).exec();
+    const plan = await this.repository.findPlanById(schedule.plan);
     if (!plan || plan.status === PlanStatus.CANCELLED || plan.status === PlanStatus.COMPLETED) return;
-    const authorization = await PaymentAuthorization.findOne({ plan: plan._id, active: true, reusable: true }).exec();
+    const authorization = await this.repository.findReusableAuthorization(plan._id);
     if (!authorization) throw new BadRequestError("Reusable payment authorization is not available for this plan");
 
-    const payment = await Payment.create({
+    const payment = await this.repository.createPayment({
       owner: plan.owner,
       plan: plan._id,
       amountMinor: plan.contributionAmountMinor,
@@ -245,10 +211,7 @@ export class PaymentService {
         await new BillingScheduleService().recordFailure(schedule, payment._id);
       }
     } catch (error: any) {
-      await Payment.updateOne(
-        { _id: payment._id },
-        { $set: { status: PaymentStatus.FAILED, failureMessage: error.message, processedAt: new Date() } },
-      ).exec();
+      await this.repository.updatePayment(payment._id, { $set: { status: PaymentStatus.FAILED, failureMessage: error.message, processedAt: new Date() } });
       await new BillingScheduleService().recordFailure(schedule, payment._id);
     }
   }
