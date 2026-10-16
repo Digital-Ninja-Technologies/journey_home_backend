@@ -52,4 +52,11 @@ export class UserRepository {
     }).exec();
     return count > 0;
   }
+
+  async findAllCustomers(): Promise<IUser[]> {
+    return User.find({ role: UserRole.CUSTOMER })
+      .select("-passwordHash")
+      .sort({ createdAt: -1 })
+      .exec();
+  }
 }

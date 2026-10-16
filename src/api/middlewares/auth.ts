@@ -111,3 +111,21 @@ export function requireSuperAdmin(
   }
   next();
 }
+
+export function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    res.status(401).json({ success: false, message: "Unauthorized" });
+    return;
+  }
+  if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPER_ADMIN) {
+    res
+      .status(403)
+      .json({ success: false, message: "Unauthorized to perform action" });
+    return;
+  }
+  next();
+}

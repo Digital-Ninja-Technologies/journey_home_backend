@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UserRole } from '../models/auth.model';
 
 export const LoginValidator = z.object({
   email: z.string().email('Invalid email format').min(1, 'Email is required'),
@@ -19,6 +20,7 @@ export const SignupValidator = z.object({
   email: z.string().email('Invalid email format').min(1, 'Email is required'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   name: z.string().trim().min(2, 'Name is required'),
+  role: z.nativeEnum(UserRole, { required_error: 'Role is required' }),
 });
 
 export type SignupValidation = z.infer<typeof SignupValidator>;

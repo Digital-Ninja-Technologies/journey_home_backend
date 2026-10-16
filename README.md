@@ -7,7 +7,7 @@
 ## Auth
 
 <details>
-<summary><strong>POST /auth/signup — Customer registration</strong></summary>
+<summary><strong>POST /auth/signup</strong></summary>
 
 - **Method:** `POST`
 - **URL:** `/api/v1/auth/signup`
@@ -21,7 +21,8 @@ Creates a customer account and returns a JWT. The server always assigns the `cus
 {
   "name": "Ada Okafor",
   "email": "ada@example.com",
-  "password": "secure123"
+  "password": "secure123",
+  "role": "admin"
 }
 ```
 
@@ -45,6 +46,10 @@ Creates a customer account and returns a JWT. The server always assigns the `cus
 ```
 
 **Errors:** `400` validation error, `409` email already exists.
+
+---
+roles: "admin", super_admin, customer, covered_person
+---
 </details>
 
 <details>
@@ -95,10 +100,22 @@ Logs in only `admin` or `super_admin` users.
 
 - **POST** `/api/v1/auth/admin` — create admin. Auth required: super admin.
 - **DELETE** `/api/v1/auth/admin/:id` — delete admin. Auth required: super admin.
-- **POST** `/api/v1/auth/change-password` — reset/change an admin password. Auth required: super admin.
 - **GET** `/api/v1/auth/admins` — list admins. Auth required: super admin.
-
 </details>
+
+<details>
+<summary><strong>change password</strong></summary>
+
+- **PATCH** `/api/v1/auth/change-password` — reset
+</details>
+
+<details>
+<summary><strong>Get all customers</strong></summary>
+
+- **method**: **GET** `/api/v1/auth/customers` 
+</details>
+
+
 
 ---
 

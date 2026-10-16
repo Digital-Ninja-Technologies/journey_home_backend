@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { validate } from '../../../common/validations/validate';
-import { authRequired, requireSuperAdmin } from '../../../api/middlewares/auth';
+import { authRequired, requireAdmin, requireSuperAdmin } from '../../../api/middlewares/auth';
 import {
   LoginValidator,
   AddAdminValidator,
@@ -24,12 +24,6 @@ router.post(
   authController.login
 );
 
-router.post(
-  '/admin/login',
-  validate(LoginValidator),
-  authController.adminLogin
-);
-
 // Add Admin
 router.post(
   '/admin',
@@ -48,7 +42,7 @@ router.delete(
 );
 
 // Change / Reset Password
-router.post(
+router.patch(
   '/change-password',
   authRequired,
   requireSuperAdmin,
@@ -63,5 +57,7 @@ router.get(
   requireSuperAdmin,
   authController.getAdmins
 );
+
+router.get("/customers", requireAdmin, authController.getCustomers)
 
 export default router;

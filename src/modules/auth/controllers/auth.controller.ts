@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/auth.service';
 import { successResponse } from '../../../common/response/success-response';
+import { BadRequestError } from '@/common/errors/BadRequestError';
 
 export class AuthController {
   private authService: AuthService;
@@ -19,20 +20,10 @@ export class AuthController {
     }
   };
 
-  signup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  signup = async (req: Request, res: Response, next: NextFunction)=> {
     try {
       const result = await this.authService.signup(req.body);
       successResponse(res, 'Signup successful', result, 201);
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  adminLogin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { email, password } = req.body;
-      const result = await this.authService.loginAdmin({ email, password });
-      successResponse(res, 'Admin login successful', result, 200);
     } catch (error) {
       next(error);
     }
@@ -60,8 +51,11 @@ export class AuthController {
 
   changePassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const requesterId = req.user!.userId;
-      const result = await this.authService.changePassword(req.body, requesterId);
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new BadRequestError('UserId is undefined')
+      }
+      const result = await this.authService.changePassword(userId, req.body);
       successResponse(res, 'Password changed successfully', result, 200);
     } catch (error) {
       next(error);
@@ -72,6 +66,15 @@ export class AuthController {
     try {
       const result = await this.authService.getAdmins();
       successResponse(res, 'Admins retrieved successfully', result, 200);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getCustomers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await this.authService.getCustomers();
+      successResponse(res, 'Customers retrieved successfully', result, 200);
     } catch (error) {
       next(error);
     }

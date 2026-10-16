@@ -1,4 +1,5 @@
-import { Types }  from "mongoose";
+import { Types } from "mongoose";
+import { UserRole } from "../models/auth.model";
 
 export interface LoginDto {
   email: string;
@@ -15,12 +16,16 @@ export interface SignupDto {
   email: string;
   password: string;
   name: string;
+  role: UserRole;
 }
 
 export interface ChangePasswordDto {
-  adminId?: string;
-  email?: string;
+  currentPassword: string;
   newPassword: string;
+}
+
+export interface ChangePasswordResponse {
+  message: string
 }
 
 export interface AdminResponseDto {

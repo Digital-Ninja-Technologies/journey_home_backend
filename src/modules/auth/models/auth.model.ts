@@ -4,6 +4,7 @@ export enum UserRole {
   CUSTOMER = "customer",
   SUPER_ADMIN = "super_admin",
   ADMIN = "admin",
+  COVERED_PERSON = "covered_person",
 }
 
 export interface IUser extends Document {
