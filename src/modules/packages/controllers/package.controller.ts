@@ -21,10 +21,12 @@ export class PackageController {
     }
   };
 
-  get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  getPackage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const includeInactive = Boolean(req.user?.isSuperAdmin || req.user?.role === "admin");
-      successResponse(res, "Package retrieved successfully", await this.service.getPackage(String(req.params.id), includeInactive));
+
+      successResponse(res, "Package retrieved successfully",
+        await this.service.getPackage(String(req.params.id), includeInactive));
     } catch (error) {
       next(error);
     }

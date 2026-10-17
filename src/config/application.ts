@@ -30,7 +30,7 @@ function booleanEnv(name: string, fallback: boolean): boolean {
 export const env = {
     NODE_ENV: process.env.NODE_ENV || "development",
 
-    PORT: Number(process.env.APP_PORT) || 3041,
+    PORT: Number(process.env.APP_PORT) || 3043,
 
     JWT_SECRET: required("JWT_SECRET"),
 

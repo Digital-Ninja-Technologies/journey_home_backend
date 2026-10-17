@@ -58,6 +58,6 @@ router.get(
   authController.getAdmins
 );
 
-router.get("/customers", requireAdmin, authController.getCustomers)
+router.get("/customers", authRequired, requireAdmin, authController.getCustomers)
 
 export default router;

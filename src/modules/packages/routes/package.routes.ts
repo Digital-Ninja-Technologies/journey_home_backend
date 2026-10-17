@@ -20,7 +20,7 @@ router.get(
   controller.listAll,
 );
 
-router.get("/:id", authRequired, controller.get);
+router.get("/:id", authRequired, controller.getPackage);
 
 router.post(
   "/",

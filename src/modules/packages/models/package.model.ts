@@ -47,7 +47,7 @@ const JourneyPackageSchema = new Schema<IJourneyPackage>(
 
 JourneyPackageSchema.index({ isActive: 1, createdAt: -1 });
 
-export const JourneyPackage = mongoose.model<IJourneyPackage>(
-  "JourneyPackage",
+export const Package = mongoose.model<IJourneyPackage>(
+  "Package",
   JourneyPackageSchema,
 );
