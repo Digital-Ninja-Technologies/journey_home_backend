@@ -10,6 +10,7 @@ export function addOneMonthPreservingBillingDay(from: Date): Date {
   const normalizedMonth = targetMonth % 12;
   const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate();
   const day = Math.min(intendedDay, lastDay);
+  
   return new Date(Date.UTC(
     targetYear,
     normalizedMonth,

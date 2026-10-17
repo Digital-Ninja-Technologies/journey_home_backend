@@ -5,3 +5,5 @@ email veerification
 reset password 
 add pagination to get all customers
 add pagination to listAll in packages and filter 
+define explicit types anywhere there is any
+pagination and filter for listAll in plan.service

@@ -299,7 +299,7 @@ Customers can retrieve only their own plans. Admins can retrieve any plan.
 }
 ```
 
-Only explicit state transitions are allowed. Customers cannot arbitrarily change protected lifecycle states.
+Only explicit state transitions are allowed. Customers cannot change protected lifecycle states.
 </details>
 
 ---
