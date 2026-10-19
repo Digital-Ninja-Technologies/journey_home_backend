@@ -41,21 +41,62 @@ export interface IPayment extends Document {
 
 const PaymentSchema = new Schema<IPayment>(
   {
-    owner: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    plan: { type: Schema.Types.ObjectId, ref: "Plan", required: true, index: true },
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    plan: {
+      type: Schema.Types.ObjectId,
+      ref: "Plan",
+      required: true,
+      index: true,
+    },
+
     amountMinor: { type: Number, required: true, min: 1 },
+
     currency: { type: String, required: true, uppercase: true },
+
     reference: { type: String, required: true, unique: true, index: true },
+
     providerReference: { type: String, index: true },
-    provider: { type: String, enum: Object.values(PaymentProvider), default: PaymentProvider.PAYSTACK },
-    purpose: { type: String, enum: Object.values(PaymentPurpose), required: true },
-    status: { type: String, enum: Object.values(PaymentStatus), default: PaymentStatus.PENDING, index: true },
+
+    provider: {
+      type: String,
+      enum: Object.values(PaymentProvider),
+      default: PaymentProvider.PAYSTACK,
+    },
+
+    purpose: {
+      type: String,
+      enum: Object.values(PaymentPurpose),
+      required: true,
+    },
+
+    status: {
+      type: String,
+      enum: Object.values(PaymentStatus),
+      default: PaymentStatus.PENDING,
+      index: true,
+    },
+
     billingCycle: { type: String },
-    authorization: { type: Schema.Types.ObjectId, ref: "PaymentAuthorization" },
+
+    authorization: {
+      type: Schema.Types.ObjectId,
+      ref: "PaymentAuthorization",
+    },
+
     failureCode: { type: String },
+
     failureMessage: { type: String },
+
     providerTransactionId: { type: String },
+
     processedAt: { type: Date },
+
     metadata: { type: Schema.Types.Mixed },
   },
   { timestamps: true },

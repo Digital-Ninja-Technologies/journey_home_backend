@@ -331,7 +331,7 @@ Creates or reuses a pending initial payment attempt for a pending owned plan. Th
 }
 ```
 
-The checkout URL is not proof of payment. The plan remains pending until server-side verification or a verified webhook confirms success.
+The plan remains pending until server-side verification or a verified webhook confirms success.
 </details>
 
 <details>

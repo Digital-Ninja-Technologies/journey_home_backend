@@ -12,10 +12,17 @@ export interface IPaystackEvent extends Document {
 
 const PaystackEventSchema = new Schema<IPaystackEvent>(
   {
-    eventKey: { type: String, required: true, unique: true, index: true },
+    eventKey: {
+      type: String, required: true,
+      unique: true, index: true
+    },
+
     event: { type: String, required: true },
+
     reference: { type: String, index: true },
+
     status: { type: String, enum: ["Processing", "Processed", "Ignored", "Failed"], required: true },
+    
     errorMessage: { type: String },
   },
   { timestamps: true },
