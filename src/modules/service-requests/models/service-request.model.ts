@@ -76,9 +76,22 @@ const CoveredPersonSnapshotSchema = new Schema<ICoveredPerson>(
 
 const ServiceRequestSchema = new Schema<IServiceRequest>(
   {
-    owner: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    plan: { type: Schema.Types.ObjectId, ref: "Plan", required: true, index: true },
-    coveredPersonSnapshot: { type: CoveredPersonSnapshotSchema, required: true },
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    plan: {
+      type: Schema.Types.ObjectId,
+      ref: "Plan",
+      required: true,
+      index: true,
+    },
+    coveredPersonSnapshot: {
+      type: CoveredPersonSnapshotSchema,
+      required: true,
+    },
     dateOfDeath: { type: Date, required: true },
     burialLocation: { type: String, required: true, trim: true },
     expectedBurialDate: { type: Date, required: true },
@@ -108,11 +121,30 @@ ServiceRequestSchema.index({ plan: 1, status: 1 });
 
 const ServiceDocumentSchema = new Schema<IServiceDocument>(
   {
-    serviceRequest: { type: Schema.Types.ObjectId, ref: "ServiceRequest", required: true, index: true },
-    owner: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    plan: { type: Schema.Types.ObjectId, ref: "Plan", required: true, index: true },
+    serviceRequest: {
+      type: Schema.Types.ObjectId,
+      ref: "ServiceRequest",
+      required: true,
+      index: true,
+    },
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    plan: {
+      type: Schema.Types.ObjectId,
+      ref: "Plan",
+      required: true,
+      index: true,
+    },
     file: { type: Schema.Types.ObjectId, ref: "File", required: true },
-    documentType: { type: String, enum: Object.values(ServiceDocumentType), required: true },
+    documentType: {
+      type: String,
+      enum: Object.values(ServiceDocumentType),
+      required: true,
+    },
     verificationStatus: {
       type: String,
       enum: Object.values(ServiceDocumentStatus),
@@ -129,7 +161,17 @@ const ServiceDocumentSchema = new Schema<IServiceDocument>(
   { timestamps: true },
 );
 
-ServiceDocumentSchema.index({ serviceRequest: 1, documentType: 1, createdAt: -1 });
+ServiceDocumentSchema.index({
+  serviceRequest: 1,
+  documentType: 1,
+  createdAt: -1,
+});
 
-export const ServiceRequest = mongoose.model<IServiceRequest>("ServiceRequest", ServiceRequestSchema);
-export const ServiceDocument = mongoose.model<IServiceDocument>("ServiceDocument", ServiceDocumentSchema);
+export const ServiceRequest = mongoose.model<IServiceRequest>(
+  "ServiceRequest",
+  ServiceRequestSchema,
+);
+export const ServiceDocument = mongoose.model<IServiceDocument>(
+  "ServiceDocument",
+  ServiceDocumentSchema,
+);
