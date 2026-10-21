@@ -16,6 +16,27 @@ import { PaystackService, PaystackTransactionData } from "./paystack.service";
 import { PaymentRepository } from "../repositories/payment.repository";
 import { SubscriptionRepository } from "../../subscriptions/repositories/subscription.repository";
 import { SubscriptionStatus } from "../../subscriptions/models/subscription.model";
+import { ISubscription } from "../../subscriptions/models/subscription.model";
+import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
+
+interface PaystackWebhookPayload {
+  event: string;
+  data?: {
+    reference?: string;
+    id?: string | number;
+    gateway_response?: string;
+    customer?: { customer_code?: string; email?: string } | number;
+    plan?: { plan_code?: string } | number;
+    subscription_code?: string;
+    subscription?: { subscription_code?: string; next_payment_date?: string };
+    next_payment_date?: string;
+    createdAt?: string;
+    status?: string;
+    invoice_code?: string;
+    amount?: number;
+    description?: string;
+  };
+}
 
 export class PaymentService {
   private repository = new PaymentRepository();
@@ -247,7 +268,7 @@ export class PaymentService {
 
   // Validates and processes a Paystack webhook, recording its outcome for retry and deduplication.
   async processWebhook(
-    payload: any,
+    payload: PaystackWebhookPayload,
     rawBody: Buffer | undefined,
     signature: string | string[] | undefined,
   ): Promise<{ status: string }> {
@@ -258,13 +279,13 @@ export class PaymentService {
       throw new BadRequestError("Invalid Paystack signature");
     }
 
-    const reference = payload?.data?.reference;
+    const reference = payload.data?.reference;
 
     // Build an event key to prevent the same webhook event from being processed repeatedly.
-    const eventKey = `${payload?.event || "unknown"}:${reference || payload?.data?.id || uuidv4()}`;
+    const eventKey = `${payload.event || "unknown"}:${reference || payload.data?.id || uuidv4()}`;
     const event = await this.repository.createPaystackEvent(
       eventKey,
-      payload?.event || "unknown",
+      payload.event || "unknown",
       reference,
     );
 
@@ -318,7 +339,7 @@ export class PaymentService {
 
         } else event.status = "Ignored";
 
-      } else if (payload.event === "charge.success" && reference) {
+      } else if (payload.event === "charge.success" && reference && payload.data) {
 
         await this.applyChargeSuccess(payload.data);
         event.status = "Processed";
@@ -412,16 +433,16 @@ export class PaymentService {
 
       await this.repository.savePaystackEvent(event);
       return { status: event.status };
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Record the error so failed webhook processing can be investigated or retried.
       event.status = "Failed";
-      event.errorMessage = error.message;
+      event.errorMessage = error instanceof Error ? error.message : String(error);
       await this.repository.savePaystackEvent(event);
       throw error;
     }
   }
 
-  private async applyChargeSuccess(data: any): Promise<void> {
+  private async applyChargeSuccess(data: NonNullable<PaystackWebhookPayload["data"]>): Promise<void> {
     const reference = String(data.reference || "");
     if (!reference) throw new BadRequestError("Provider reference is missing");
     const exists = await this.repository.findByProviderReference(reference);
@@ -447,7 +468,7 @@ export class PaymentService {
 
   private async createAndApplyRecurring(
     data: PaystackTransactionData,
-    subscription: any,
+    subscription: ISubscription,
   ) {
     if (!data.reference || data.amount === undefined || !data.currency)
       throw new BadRequestError("Incomplete Paystack transaction data");
@@ -468,8 +489,9 @@ export class PaymentService {
     await this.applyProviderTransaction(data);
   }
 
-  async listForOwner(ownerId: string): Promise<IPayment[]> {
-    return this.repository.listForOwner(ownerId);
+  async listForOwner(ownerId: string, options: PageOptions, filters: { status?: PaymentStatus; purpose?: PaymentPurpose; planId?: string; from?: Date; to?: Date }): Promise<PaginatedResult<IPayment>> {
+    const [items, total] = await this.repository.listForOwner(ownerId, options, filters);
+    return pageResult(items, total, options);
   }
 
   async getForOwner(paymentId: string, ownerId: string): Promise<IPayment> {

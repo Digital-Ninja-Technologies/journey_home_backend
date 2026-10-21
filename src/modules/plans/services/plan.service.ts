@@ -5,19 +5,21 @@ import { PackageService } from "../../packages/services/package.service";
 import { PlanStatus, IPlan, CoverageStatus } from "../models/plan.model";
 import { PlanRepository } from "../repositories/plan.repository";
 import { PlanStateService } from "./plan-state.service";
+import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
+import { CreatePlanDto } from "../validators/plan.validator";
 
 export class PlanService {
   private packages = new PackageService();
   private state = new PlanStateService();
   private repository = new PlanRepository();
 
-  async create(ownerId: string, dto: any): Promise<IPlan> {
+  async create(ownerId: string, dto: CreatePlanDto): Promise<IPlan> {
     // Load the selected package and capture its terms for this plan.
     const pkg = await this.packages.getPackage(dto.packageId, false);
 
     const packageDetails = this.packages.toSnapshot(pkg);
 
-    if (!pkg.paystackPlanCode) throw new BadRequestError("Package subscription setup is incomplete");
+    if (!pkg.paystackPlanCode || pkg.paystackPlanStatus !== "ready") throw new BadRequestError("Package subscription setup is incomplete");
     const startDate = new Date();
 
     // Keep plan creation transactional.
@@ -72,8 +74,9 @@ export class PlanService {
   }
 
   // Return all plans, typically for an administrative view.
-  async listAll(): Promise<IPlan[]> {
-    return this.repository.listAll();
+  async listAll(options: PageOptions, filters: { status?: PlanStatus; ownerId?: string; packageId?: string; search?: string }): Promise<PaginatedResult<IPlan>> {
+    const [items, total] = await this.repository.listAll(options, filters);
+    return pageResult(items, total, options);
   }
 
   async getForOwner(planId: string, ownerId: string): Promise<IPlan> {

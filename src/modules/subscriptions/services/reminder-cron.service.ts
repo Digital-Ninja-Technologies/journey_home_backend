@@ -4,6 +4,14 @@ import { EmailService } from "../../../common/services/email.service";
 import { Notification, NotificationEvent, NotificationStatus } from "../../notifications/models/notification.model";
 import { SubscriptionRepository } from "../repositories/subscription.repository";
 import { env } from "../../../config/application";
+import { Types } from "mongoose";
+import { ISubscription } from "../models/subscription.model";
+import { INotification } from "../../notifications/models/notification.model";
+
+interface ReminderOwner { _id: Types.ObjectId; email: string; name?: string; }
+interface ReminderPlan { _id: Types.ObjectId; nextPaymentDate?: Date; packageDetails?: { currency: string; amount: number; }; }
+type PopulatedSubscription = Omit<ISubscription, "owner" | "plan"> & { owner: ReminderOwner; plan: ReminderPlan };
+type ReminderNotification = Pick<INotification, "dedupeKey" | "status" | "save"> & { owner: ReminderOwner; plan: ReminderPlan };
 
 let started = false;
 export function startContributionReminderCron() {
@@ -21,28 +29,30 @@ async function sendReminders(days: 3 | 7) {
   const targetKey = addDateKeyDays(today, days);
   const target = new Date(`${targetKey}T00:00:00+01:00`);
   const end = new Date(target.getTime() + 86400000);
-  const subscriptions = await new SubscriptionRepository().listRemindersBetween(target, end);
-  for (const subscription of subscriptions) {
-    const owner: any = subscription.owner; const plan: any = subscription.plan;
+  const rawSubscriptions = await new SubscriptionRepository().listRemindersBetween(target, end);
+  for (const rawSubscription of rawSubscriptions) {
+    const subscription = rawSubscription as unknown as PopulatedSubscription;
+    const owner = subscription.owner; const plan = subscription.plan;
     if (!owner?.email || !subscription.nextPaymentDate) continue;
     const dateKey = lagosDateKey(subscription.nextPaymentDate);
     const dedupeKey = `contribution-reminder:${subscription._id}:${days}:${dateKey}`;
-    const record: any = await Notification.findOneAndUpdate({ dedupeKey }, { $setOnInsert: { owner: owner._id, plan: plan?._id, event: NotificationEvent.UPCOMING_CONTRIBUTION, dedupeKey, status: NotificationStatus.PENDING, channel: "email", subject: `${days}-day contribution reminder` } }, { upsert: true, new: true }).exec();
+    const record = await Notification.findOneAndUpdate({ dedupeKey }, { $setOnInsert: { owner: owner._id, plan: plan._id, event: NotificationEvent.UPCOMING_CONTRIBUTION, dedupeKey, status: NotificationStatus.PENDING, channel: "email", subject: `${days}-day contribution reminder` } }, { upsert: true, new: true }).exec();
     if (record.status === NotificationStatus.SENT) continue;
     const claimed = await claimReminder(dedupeKey);
     if (!claimed) continue;
-    const sent = await new EmailService().sendEmail(owner.email, `Journey Home contribution reminder`, `<p>Hello ${owner.name || "there"},</p><p>Your contribution of ${plan?.packageSnapshot?.currency || ""} ${plan?.packageSnapshot?.monthlyContributionMinor || ""} is expected on ${subscription.nextPaymentDate.toLocaleDateString("en-NG")}.</p><p>This is a reminder only. Your subscription collection is handled securely by Paystack.</p>`);
+    const sent = await new EmailService().sendEmail(owner.email, `Journey Home contribution reminder`, `<p>Hello ${owner.name || "there"},</p><p>Your contribution of ${plan.packageDetails?.currency || ""} ${plan.packageDetails?.amount || 0} is expected on ${subscription.nextPaymentDate.toLocaleDateString("en-NG")}.</p><p>This is a reminder only. Your subscription collection is handled securely by Paystack.</p>`);
     claimed.status = sent ? NotificationStatus.SENT : NotificationStatus.FAILED; await claimed.save();
   }
 }
 
 async function retryFailedReminders() {
   const stale = new Date(Date.now() - 30 * 60 * 1000);
-  const records: any[] = await Notification.find({ event: NotificationEvent.UPCOMING_CONTRIBUTION, status: NotificationStatus.FAILED, updatedAt: { $lte: stale }, dedupeKey: /^contribution-reminder:/ })
-    .populate("owner", "email name").populate("plan", "nextPaymentDate packageSnapshot").exec();
+  const records = await Notification.find({ event: NotificationEvent.UPCOMING_CONTRIBUTION, status: NotificationStatus.FAILED, updatedAt: { $lte: stale }, dedupeKey: /^contribution-reminder:/ })
+    .populate("owner", "email name").populate("plan", "nextPaymentDate packageDetails").exec();
   const nowKey = lagosDateKey(new Date());
-  for (const record of records) {
-    const owner: any = record.owner; const plan: any = record.plan;
+  for (const rawRecord of records) {
+    const record = rawRecord as unknown as ReminderNotification;
+    const owner = record.owner; const plan = record.plan;
     if (!owner?.email || !plan?.nextPaymentDate || lagosDateKey(plan.nextPaymentDate) < nowKey) continue;
     const match = String(record.dedupeKey).match(/:(3|7):(\d{4}-\d{2}-\d{2})$/);
     if (!match || match[2] !== lagosDateKey(plan.nextPaymentDate)) continue;

@@ -16,6 +16,7 @@ import cookieParser from "cookie-parser";
 
 import { errorHandler } from "./api/middlewares/error.middleware";
 import router from "./api/routes";
+import { createRateLimiter } from "./api/middlewares/rateLimit";
 
 declare global {
   namespace Express {
@@ -45,6 +46,7 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true }));
 
 // routes
+app.use("/api/v1", createRateLimiter(600, 15 * 60 * 1000));
 app.use("/api/v1", router);
 
 // 404 handler

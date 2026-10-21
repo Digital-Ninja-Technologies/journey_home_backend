@@ -266,13 +266,14 @@ export class FileService {
       // Returns { file: updated || file, url } to the caller.
       return { file: updated || file, url };
     // Closes the current block.
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Runs the following branch when error instanceof BadRequestError is true.
       if (error instanceof BadRequestError) throw error;
       // Waits for fileRepo.updateStatus to finish before continuing.
       await this.fileRepo.updateStatus(fileId, FileStatus.FAILED);
       // Raises BadRequestError to report an invalid or failed operation.
-      throw new BadRequestError(`File completion failed. Storage object not found or incomplete: ${error.message || "Object missing"}`);
+      const reason = error instanceof Error ? error.message : "Object missing";
+      throw new BadRequestError(`File completion failed. Storage object not found or incomplete: ${reason}`);
     // Closes the current block.
     }
   // Closes the current block.

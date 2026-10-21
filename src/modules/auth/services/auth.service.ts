@@ -16,6 +16,11 @@ import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { comparePassword, hashPassword } from "../../../common/utils/password";
 import { generateAccessToken } from "../../../common/utils/jwt";
 import { IUser, UserRole } from "../models/auth.model";
+import { createHash, randomBytes } from "crypto";
+import { EmailService } from "../../../common/services/email.service";
+import { env } from "../../../config/application";
+import { SignupResponseDto } from "../dto/auth.dto";
+import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
 
 export class AuthService {
   private userRepo: UserRepository;
@@ -25,7 +30,7 @@ export class AuthService {
   }
 
   // Build the requested result.
-  private buildAuthResponse(user: any): AuthResponseDto {
+  private buildAuthResponse(user: IUser): AuthResponseDto {
     const isSuperAdmin = Boolean(
       user.isSuperAdmin || user.role === UserRole.SUPER_ADMIN,
     );
@@ -50,7 +55,7 @@ export class AuthService {
   }
 
   // Registers a new user
-  async signup(dto: SignupDto): Promise<AuthResponseDto> {
+  async signup(dto: SignupDto): Promise<SignupResponseDto> {
     // check if user exists
     const existing = await this.userRepo.findByEmail(dto.email);
     if (existing) {
@@ -65,10 +70,11 @@ export class AuthService {
       passwordHash,
       role: dto.role,
       isSuperAdmin: dto.role === UserRole.SUPER_ADMIN ? true : false,
+      isEmailVerified: false,
       name: dto.name.trim(),
     });
-
-    return this.buildAuthResponse(user);
+    await this.sendEmailVerification(user);
+    return { message: "Signup completed. Check your email to verify the account before logging in.", email: user.email };
   }
 
   // Authenticates a user and returns the  session data.
@@ -86,6 +92,7 @@ export class AuthService {
     if (!isMatch) {
       throw new UnauthorizedError("Invalid email or password");
     }
+    if (user.isEmailVerified === false) throw new UnauthorizedError("Verify your email before logging in");
 
     return this.buildAuthResponse(user);
   }
@@ -117,7 +124,6 @@ export class AuthService {
       name: newAdmin.name,
       role: newAdmin.role,
       isSuperAdmin: newAdmin.isSuperAdmin,
-      password: dto.password,
       createdAt: newAdmin.createdAt,
     };
   }
@@ -196,8 +202,61 @@ export class AuthService {
   }
 
   // Returns the customer accounts.
-  async getCustomers(): Promise<IUser[]> {
-    const customers = await this.userRepo.findAllCustomers();
-    return customers;
+  async getCustomers(options: PageOptions, filters: { search?: string; emailVerified?: boolean }): Promise<PaginatedResult<IUser>> {
+    const [items, total] = await this.userRepo.findAllCustomers(options, filters);
+    return pageResult(items, total, options);
+  }
+
+  async getProfile(userId: string) {
+    const user = await this.userRepo.findById(userId);
+    if (!user) throw new NotFoundError("User not found");
+    return { id: user._id, email: user.email, name: user.name, role: user.role, isSuperAdmin: user.isSuperAdmin, isEmailVerified: user.isEmailVerified, createdAt: user.createdAt, updatedAt: user.updatedAt };
+  }
+
+  async verifyEmail(token: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findEmailVerificationToken(this.hashToken(token));
+    if (!user) throw new BadRequestError("Verification link is invalid or expired");
+    user.isEmailVerified = true; user.emailVerificationTokenHash = undefined; user.emailVerificationExpiresAt = undefined;
+    await user.save();
+    return { message: "Email verified successfully" };
+  }
+
+  async resendVerification(email: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findByEmail(email);
+    if (user && user.isEmailVerified === false) await this.sendEmailVerification(user);
+    return { message: "If the account needs verification, a new link has been sent" };
+  }
+
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findByEmail(email);
+    if (user) {
+      const token = randomBytes(32).toString("hex");
+      user.passwordResetTokenHash = this.hashToken(token);
+      user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await user.save();
+      const url = `${env.FRONTEND_URL.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+      await new EmailService().sendEmail(user.email, "Reset your Journey Home password", `<p>Hello ${user.name},</p><p><a href="${url}">Reset your password</a>. This link expires in one hour.</p>`);
+    }
+    return { message: "If an account exists for that email, password reset instructions have been sent" };
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findPasswordResetToken(this.hashToken(token));
+    if (!user) throw new BadRequestError("Password reset link is invalid or expired");
+    user.passwordHash = await hashPassword(newPassword);
+    user.passwordResetTokenHash = undefined; user.passwordResetExpiresAt = undefined;
+    await user.save();
+    return { message: "Password reset successfully" };
+  }
+
+  private hashToken(token: string): string { return createHash("sha256").update(token).digest("hex"); }
+
+  private async sendEmailVerification(user: IUser): Promise<void> {
+    const token = randomBytes(32).toString("hex");
+    user.emailVerificationTokenHash = this.hashToken(token);
+    user.emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await user.save();
+    const url = `${env.FRONTEND_URL.replace(/\/$/, "")}/verify-email?token=${encodeURIComponent(token)}`;
+    await new EmailService().sendEmail(user.email, "Verify your Journey Home email", `<p>Hello ${user.name},</p><p><a href="${url}">Verify your email address</a>. This link expires in 24 hours.</p>`);
   }
 }

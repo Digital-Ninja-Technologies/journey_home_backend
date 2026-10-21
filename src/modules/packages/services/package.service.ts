@@ -1,9 +1,10 @@
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { IJourneyPackage, IPackageSnapshot } from "../models/package.model";
 import { PackageRepository } from "../repositories/package.repository";
 import { PaystackService } from "../../payments/services/paystack.service";
+import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
 
 export class PackageService {
   private repository = new PackageRepository();
@@ -13,8 +14,9 @@ export class PackageService {
   }
 
   // Returns all records in newest-first order.
-  async listAll(): Promise<IJourneyPackage[]> {
-    return this.repository.listAll();
+  async listAll(options: PageOptions, filters: { isActive?: boolean; search?: string }): Promise<PaginatedResult<IJourneyPackage>> {
+    const [items, total] = await this.repository.listAll(options, filters);
+    return pageResult(items, total, options);
   }
 
   // get one package
@@ -40,27 +42,24 @@ export class PackageService {
 
     const interval = dto.billingInterval || "monthly";
 
-    const providerPlan = await new PaystackService().createPlan({
-      name: dto.name!,
-      amount: dto.amount!,
-      currency,
-      interval,
-      description: dto.description,
-    });
+    const session = await mongoose.startSession();
+    let pkg!: IJourneyPackage;
+    try {
+      await session.withTransaction(async () => {
+        pkg = await this.repository.createWithSession({ ...dto, currency, billingInterval: interval, paystackPlanStatus: "pending", createdBy: newAdminId, updatedBy: newAdminId }, session);
+      });
+    } finally { await session.endSession(); }
 
-    return this.repository.create({
-      ...dto,
-      currency: (dto.currency || "NGN").toUpperCase(),
-      billingInterval: interval,
-      paystackPlanCode: providerPlan.plan_code,
-      paystackPlanId: providerPlan.id,
-      paystackPlanAmount: providerPlan.amount,
-      paystackPlanCurrency: providerPlan.currency,
-      paystackPlanInterval: providerPlan.interval,
-      paystackPlanSyncedAt: new Date(),
-      createdBy: newAdminId,
-      updatedBy: newAdminId,
-    });
+    // Persist the package before the external call so Paystack cannot succeed without a local record.
+    try {
+      const providerPlan = await new PaystackService().createPlan({ name: pkg.name, amount: pkg.amount, currency: pkg.currency, interval: pkg.billingInterval, description: pkg.description });
+      const updated = await this.repository.update(pkg._id.toString(), { paystackPlanCode: providerPlan.plan_code, paystackPlanId: providerPlan.id, paystackPlanAmount: providerPlan.amount, paystackPlanCurrency: providerPlan.currency, paystackPlanInterval: providerPlan.interval, paystackPlanSyncedAt: new Date(), paystackPlanStatus: "ready" });
+      if (!updated) throw new Error("Package provider details could not be persisted");
+      return updated;
+    } catch (error) {
+      await this.repository.update(pkg._id.toString(), { paystackPlanStatus: "failed" });
+      throw error;
+    }
   }
 
   async update(
@@ -111,6 +110,7 @@ export class PackageService {
 
       providerFields = {
         paystackPlanCode: providerPlan.plan_code,
+        paystackPlanStatus: "ready",
 
         paystackPlanId: providerPlan.id,
         paystackPlanAmount: providerPlan.amount,
@@ -152,6 +152,7 @@ export class PackageService {
       paystackPlanCurrency: providerPlan.currency,
       paystackPlanInterval: providerPlan.interval,
       paystackPlanSyncedAt: new Date(),
+      paystackPlanStatus: "ready",
     });
     if (!updated) throw new NotFoundError("Package not found");
     return updated;
@@ -174,6 +175,7 @@ export class PackageService {
     delete value.paystackPlanCode;
     delete value.paystackPlanId;
     delete value.paystackPlanAmount;
+    delete value.paystackPlanStatus;
     delete value.paystackPlanCurrency;
     delete value.paystackPlanInterval;
     delete value.paystackPlanSyncedAt;

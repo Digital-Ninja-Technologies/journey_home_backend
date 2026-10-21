@@ -3,6 +3,8 @@ import { successResponse } from "../../../common/response/success-response";
 import { UserRole } from "../../auth/models/auth.model";
 import { PlanService } from "../services/plan.service";
 import { BadRequestError } from "@/common/errors/BadRequestError";
+import { parsePageOptions, queryString } from "../../../common/utils/pagination";
+import { PlanStatus } from "../models/plan.model";
 
 export class PlanController {
   private service = new PlanService();
@@ -39,12 +41,15 @@ export class PlanController {
     }
   };
 
-  listAll = async (_req: Request, res: Response, next: NextFunction) => {
+  listAll = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const status = queryString(req.query.status);
+      if (status && !Object.values(PlanStatus).includes(status as PlanStatus)) throw new BadRequestError("Invalid plan status filter");
+      const result = await this.service.listAll(parsePageOptions(req.query), { status: status as PlanStatus | undefined, ownerId: queryString(req.query.ownerId), packageId: queryString(req.query.packageId), search: queryString(req.query.search) });
       successResponse(
         res,
         "Plans retrieved successfully",
-        await this.service.listAll(),
+        result,
       );
     } catch (error) {
       next(error);

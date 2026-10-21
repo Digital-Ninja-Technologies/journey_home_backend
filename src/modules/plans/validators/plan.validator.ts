@@ -16,6 +16,7 @@ export const CreatePlanValidator = z.object({
       message: "Either dateOfBirth or age is required",
     }),
 });
+export type CreatePlanDto = z.infer<typeof CreatePlanValidator>;
 
 export const AdminStatusValidator = z.object({
   status: z.enum([

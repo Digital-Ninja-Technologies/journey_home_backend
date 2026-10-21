@@ -19,6 +19,8 @@ export interface SignupDto {
   role: UserRole;
 }
 
+export interface SignupResponseDto { message: string; email: string; }
+
 export interface ChangePasswordDto {
   currentPassword: string;
   newPassword: string;
@@ -34,7 +36,6 @@ export interface AdminResponseDto {
   name: string;
   role: string;
   isSuperAdmin: boolean;
-  password?: string;
   createdAt?: Date;
 }
 

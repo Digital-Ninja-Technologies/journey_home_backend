@@ -18,6 +18,7 @@ export interface IJourneyPackage extends Document {
   currency: string;
   billingInterval: "monthly";
   paystackPlanCode?: string;
+  paystackPlanStatus: "pending" | "ready" | "failed";
   paystackPlanId?: number;
   paystackPlanAmount?: number;
   paystackPlanCurrency?: string;
@@ -48,6 +49,7 @@ const JourneyPackageSchema = new Schema<IJourneyPackage>(
       required: true,
     },
     paystackPlanCode: { type: String, index: true },
+    paystackPlanStatus: { type: String, enum: ["pending", "ready", "failed"], default: "pending", index: true },
 
     paystackPlanId: { type: Number },
 

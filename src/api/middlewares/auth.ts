@@ -54,10 +54,14 @@ export async function authRequired(
     const decoded = jwt.verify(token, env.JWT_SECRET) as TokenPayload;
 
     const user = await User.findById(decoded.userId)
-      .select("_id role email isSuperAdmin")
+      .select("_id role email isSuperAdmin isEmailVerified")
       .lean();
     if (!user) {
       res.status(401).json({ success: false, message: "User not found" });
+      return;
+    }
+    if (user.isEmailVerified === false) {
+      res.status(403).json({ success: false, message: "Verify your email before accessing protected resources" });
       return;
     }
 

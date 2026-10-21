@@ -1,5 +1,6 @@
 import { ClientSession, Types } from "mongoose";
 import { Plan, PlanStatus } from "../../plans/models/plan.model";
+import { PageOptions } from "../../../common/utils/pagination";
 import {
   IServiceDocument,
   IServiceRequest,
@@ -28,10 +29,13 @@ export class ServiceRequestRepository {
       .exec();
   }
 
-  listAll(status?: ServiceRequestStatus) {
-    return ServiceRequest.find(status ? { status } : {})
-      .sort({ createdAt: -1 })
-      .exec();
+  listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date }) {
+    const query: Record<string, unknown> = {};
+    if (filters.status) query.status = filters.status;
+    if (filters.ownerId) query.owner = filters.ownerId;
+    if (filters.planId) query.plan = filters.planId;
+    if (filters.from || filters.to) query.createdAt = { ...(filters.from ? { $gte: filters.from } : {}), ...(filters.to ? { $lte: filters.to } : {}) };
+    return Promise.all([ServiceRequest.find(query).sort({ createdAt: -1 }).skip(options.skip).limit(options.limit).exec(), ServiceRequest.countDocuments(query).exec()]);
   }
 
   findRequest(query: Record<string, unknown>) {

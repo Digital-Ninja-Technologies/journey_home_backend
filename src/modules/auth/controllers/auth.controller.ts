@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/auth.service';
 import { successResponse } from '../../../common/response/success-response';
 import { BadRequestError } from '@/common/errors/BadRequestError';
+import { parsePageOptions, queryString } from "../../../common/utils/pagination";
 
 export class AuthController {
   private authService: AuthService;
@@ -73,10 +74,38 @@ export class AuthController {
 
   getCustomers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const result = await this.authService.getCustomers();
+      const verified = queryString(req.query.emailVerified);
+      if (verified && verified !== "true" && verified !== "false") throw new BadRequestError("emailVerified must be true or false");
+      const emailVerified = verified === "true" ? true : verified === "false" ? false : undefined;
+      const result = await this.authService.getCustomers(parsePageOptions(req.query), { search: queryString(req.query.search), emailVerified });
       successResponse(res, 'Customers retrieved successfully', result, 200);
     } catch (error) {
       next(error);
     }
+  };
+
+  getProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "User profile retrieved successfully", await this.authService.getProfile(req.user!.userId)); }
+    catch (error) { next(error); }
+  };
+
+  verifyEmail = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Email verified successfully", await this.authService.verifyEmail(req.body.token)); }
+    catch (error) { next(error); }
+  };
+
+  resendVerification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Verification email request processed", await this.authService.resendVerification(req.body.email)); }
+    catch (error) { next(error); }
+  };
+
+  requestPasswordReset = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Password reset request processed", await this.authService.requestPasswordReset(req.body.email)); }
+    catch (error) { next(error); }
+  };
+
+  resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Password reset successfully", await this.authService.resetPassword(req.body.token, req.body.newPassword)); }
+    catch (error) { next(error); }
   };
 }

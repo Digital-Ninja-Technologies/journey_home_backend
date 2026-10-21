@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { successResponse } from "../../../common/response/success-response";
 import { PaymentService } from "../services/payment.service";
+import { parsePageOptions, queryString } from "../../../common/utils/pagination";
+import { BadRequestError } from "../../../common/errors/BadRequestError";
+import { PaymentPurpose, PaymentStatus } from "../models/payment.model";
 
 export class PaymentController {
   private service = new PaymentService();
@@ -37,7 +40,13 @@ export class PaymentController {
 
   listMine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      successResponse(res, "Payments retrieved successfully", await this.service.listForOwner(req.user!.userId));
+      const status = queryString(req.query.status); const purpose = queryString(req.query.purpose);
+      if (status && !Object.values(PaymentStatus).includes(status as PaymentStatus)) throw new BadRequestError("Invalid payment status filter");
+      if (purpose && !Object.values(PaymentPurpose).includes(purpose as PaymentPurpose)) throw new BadRequestError("Invalid payment purpose filter");
+      const fromRaw = queryString(req.query.from); const toRaw = queryString(req.query.to);
+      const from = fromRaw ? new Date(fromRaw) : undefined; const to = toRaw ? new Date(toRaw) : undefined;
+      if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime())) || (from && to && from > to)) throw new BadRequestError("Invalid payment date range");
+      successResponse(res, "Payments retrieved successfully", await this.service.listForOwner(req.user!.userId, parsePageOptions(req.query), { status: status as PaymentStatus | undefined, purpose: purpose as PaymentPurpose | undefined, planId: queryString(req.query.planId), from, to }));
     } catch (error) {
       next(error);
     }

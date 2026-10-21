@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { successResponse } from "../../../common/response/success-response";
 import { PackageService } from "../services/package.service";
+import { parsePageOptions, queryString } from "../../../common/utils/pagination";
+import { BadRequestError } from "../../../common/errors/BadRequestError";
 
 export class PackageController {
   private service = new PackageService();
@@ -13,9 +15,13 @@ export class PackageController {
     }
   };
 
-  listAll = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  listAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      successResponse(res, "Packages retrieved successfully", (await this.service.listAll()).map((pkg) => this.service.publicView(pkg)));
+      const isActiveValue = queryString(req.query.isActive);
+      if (isActiveValue && isActiveValue !== "true" && isActiveValue !== "false") throw new BadRequestError("isActive must be true or false");
+      const isActive = isActiveValue === "true" ? true : isActiveValue === "false" ? false : undefined;
+      const result = await this.service.listAll(parsePageOptions(req.query), { isActive, search: queryString(req.query.search) });
+      successResponse(res, "Packages retrieved successfully", { ...result, items: result.items.map((pkg) => this.service.publicView(pkg)) });
     } catch (error) {
       next(error);
     }

@@ -10,6 +10,7 @@ export const CreateServiceRequestValidator = z.object({
   contactPhone: z.string().trim().min(5),
   additionalInformation: z.string().trim().optional(),
 });
+export type CreateServiceRequestDto = z.infer<typeof CreateServiceRequestValidator>;
 
 export const RequestServiceDocumentUploadValidator = z.object({
   documentType: z.nativeEnum(ServiceDocumentType),
@@ -17,6 +18,7 @@ export const RequestServiceDocumentUploadValidator = z.object({
   contentType: z.string().trim().min(1),
   size: z.number().positive(),
 });
+export type RequestServiceDocumentUploadDto = z.infer<typeof RequestServiceDocumentUploadValidator>;
 
 export const CompleteServiceDocumentUploadValidator = z.object({
   fileId: z.string().min(1),
@@ -24,6 +26,7 @@ export const CompleteServiceDocumentUploadValidator = z.object({
   documentType: z.nativeEnum(ServiceDocumentType),
   replacesDocumentId: z.string().optional(),
 });
+export type CompleteServiceDocumentUploadDto = z.infer<typeof CompleteServiceDocumentUploadValidator>;
 
 export const VerifyServiceDocumentValidator = z.object({
   verificationStatus: z.enum([ServiceDocumentStatus.APPROVED, ServiceDocumentStatus.REQUIRES_RESUBMISSION]),
@@ -31,15 +34,10 @@ export const VerifyServiceDocumentValidator = z.object({
 }).refine((value) => value.verificationStatus !== ServiceDocumentStatus.REQUIRES_RESUBMISSION || Boolean(value.reason), {
   message: "reason is required when requesting resubmission",
 });
-
-export const ReviewServiceRequestValidator = z.object({
-  reason: z.string().trim().optional(),
-}).optional();
-
-export const RequestMoreInfoValidator = z.object({
-  reason: z.string().trim().min(3),
-});
+export type VerifyServiceDocumentDto = z.infer<typeof VerifyServiceDocumentValidator>;
 
 export const AdminRequestStatusValidator = z.object({
-  status: z.enum([ServiceRequestStatus.UNDER_REVIEW, ServiceRequestStatus.CANCELLED]),
+  status: z.enum([ServiceRequestStatus.UNDER_REVIEW, ServiceRequestStatus.DOCS_VERIFIED, ServiceRequestStatus.APPROVED, ServiceRequestStatus.REJECTED, ServiceRequestStatus.MORE_INFO_REQUIRED, ServiceRequestStatus.CANCELLED]),
+  reason: z.string().trim().min(3).optional(),
 });
+export type AdminRequestStatusDto = z.infer<typeof AdminRequestStatusValidator>;

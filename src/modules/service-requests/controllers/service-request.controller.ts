@@ -2,6 +2,9 @@ import { Request, Response, NextFunction } from "express";
 import { successResponse } from "../../../common/response/success-response";
 import { UserRole } from "../../auth/models/auth.model";
 import { ServiceRequestService } from "../services/service-request.service";
+import { parsePageOptions, queryString } from "../../../common/utils/pagination";
+import { ServiceRequestStatus } from "../models/service-request.model";
+import { BadRequestError } from "../../../common/errors/BadRequestError";
 
 export class ServiceRequestController {
   private service = new ServiceRequestService();
@@ -25,7 +28,12 @@ export class ServiceRequestController {
 
   listAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      successResponse(res, "Service requests retrieved successfully", await this.service.listAll(String(req.query.status || "")));
+      const status = queryString(req.query.status);
+      if (status && !Object.values(ServiceRequestStatus).includes(status as ServiceRequestStatus)) throw new BadRequestError("Invalid service request status filter");
+      const fromRaw = queryString(req.query.from); const toRaw = queryString(req.query.to);
+      const from = fromRaw ? new Date(fromRaw) : undefined; const to = toRaw ? new Date(toRaw) : undefined;
+      if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime())) || (from && to && from > to)) throw new BadRequestError("Invalid service request date range");
+      successResponse(res, "Service requests retrieved successfully", await this.service.listAll(parsePageOptions(req.query), { status: status as ServiceRequestStatus | undefined, ownerId: queryString(req.query.ownerId), planId: queryString(req.query.planId), from, to }));
     } catch (error) {
       next(error);
     }
@@ -77,14 +85,6 @@ export class ServiceRequestController {
     }
   };
 
-  markUnderReview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      successResponse(res, "Service request marked under review", await this.service.markUnderReview(String(req.params.id), req.user!.userId));
-    } catch (error) {
-      next(error);
-    }
-  };
-
   verifyDocument = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       successResponse(
@@ -97,35 +97,8 @@ export class ServiceRequestController {
     }
   };
 
-  markDocsVerified = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      successResponse(res, "Service request documents verified", await this.service.markDocsVerified(String(req.params.id), req.user!.userId));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  approve = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      successResponse(res, "Service request approved", await this.service.approve(String(req.params.id), req.user!.userId));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  reject = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      successResponse(res, "Service request rejected", await this.service.reject(String(req.params.id), req.user!.userId, req.body?.reason));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  requestMoreInfo = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      successResponse(res, "More information requested", await this.service.requestMoreInfo(String(req.params.id), req.user!.userId, req.body.reason));
-    } catch (error) {
-      next(error);
-    }
+  updateStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Service request status updated", await this.service.updateStatus(String(req.params.id), req.user!.userId, req.body)); }
+    catch (error) { next(error); }
   };
 }

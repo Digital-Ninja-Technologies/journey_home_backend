@@ -7,6 +7,12 @@ import { User, UserRole } from "../../modules/auth/models/auth.model";
 // Imports logger from ../logger/logger.
 import { logger } from "../logger/logger";
 
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 // Provides the next part of the surrounding operation.
 interface BasicEnquiry {
   // Declares the type property with type or value string.
@@ -19,8 +25,7 @@ interface BasicEnquiry {
   email?: string;
   // Declares the phone property with type or value string.
   phone?: string;
-  // Declares the details property with type or value any.
-  details?: any;
+  details?: unknown;
   // Declares the createdAt property with type or value Date.
   createdAt?: Date;
 // Closes the current block.
@@ -59,11 +64,11 @@ export class EmailService {
       // Returns true to the caller.
       return true;
     // Closes the current block.
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Calls logger.error to perform the next step.
       logger.error(
         // Opens the block for the declaration or control flow above.
-        { err: error?.response?.data || error.message, to, subject },
+        { err: error instanceof Error ? error.message : String(error), to, subject },
         "Failed to send email via Email Service"
       // Provides the next part of the surrounding operation.
       );
@@ -142,11 +147,11 @@ export class EmailService {
       // Waits for Promise.all to finish before continuing.
       await Promise.all(emailPromises);
     // Closes the current block.
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Calls logger.error to perform the next step.
       logger.error(
         // Opens the block for the declaration or control flow above.
-        { err: error.message },
+        { err: error instanceof Error ? error.message : String(error) },
         "Error occurred while attempting to notify super admins of enquiry"
       // Provides the next part of the surrounding operation.
       );
@@ -195,7 +200,8 @@ export class EmailService {
     // Runs the following branch when enquiry.details is true.
     if (enquiry.details) {
       // Defines details using the value on the right-hand side.
-      const details = enquiry.details as any;
+      const details = toRecord(enquiry.details);
+      const priceRange = toRecord(details.priceRange);
 
         // Runs the following branch when enquiry.type === "customer" is true.
         if (enquiry.type === "customer") {
@@ -206,8 +212,10 @@ export class EmailService {
               // Calls .map to perform the next step.
               .map(
                 // Provides the next part of the surrounding operation.
-                (app: any) =>
-                  `<li style="margin-bottom: 4px;"><strong>${app.name}</strong> (${app.wattage}W x ${app.quantity})</li>`
+                (app: unknown) => {
+                  const appliance = toRecord(app);
+                  return `<li style="margin-bottom: 4px;"><strong>${appliance.name || "Appliance"}</strong> (${appliance.wattage || 0}W x ${appliance.quantity || 0})</li>`;
+                }
               // Provides the next part of the surrounding operation.
               )
               // Calls .join to perform the next step.
@@ -224,7 +232,7 @@ export class EmailService {
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Recommended Tier:</strong> <span style="color: #10B981; font-weight: bold;">${details.preferredTier || details.calculatedSize || "N/A"}</span></td>
           </tr>
           <tr>
-            <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Price Range:</strong> ${details.priceRange?.formatted || "N/A"}</td>
+            <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Price Range:</strong> ${priceRange.formatted || "N/A"}</td>
           </tr>
           <tr>
             <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Total Load:</strong> ${details.totalLoad || 0} W (${details.totalLoadKVA || 0} kVA)</td>

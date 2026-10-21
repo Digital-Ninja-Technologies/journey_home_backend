@@ -47,6 +47,7 @@ export const env = {
    EMAIL_SERVICE_URL:
      process.env.EMAIL_SERVICE_URL ||
      "https://email-service-one-alpha.vercel.app/api/mail/send",
+   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:3000",
    SUPER_ADMIN_EMAIL: process.env.SUPER_ADMIN_EMAIL || "",
 
    PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY || "",

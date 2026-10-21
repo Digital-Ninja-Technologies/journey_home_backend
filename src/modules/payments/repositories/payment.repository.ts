@@ -13,6 +13,7 @@ import {
 } from "../models/payment.model";
 import { PaystackEvent } from "../models/paystack-event.model";
 import { Package } from "../../packages/models/package.model";
+import { PageOptions } from "../../../common/utils/pagination";
 
 export class PaymentRepository {
   findPlanForOwner(planId: string, ownerId: string) {
@@ -134,8 +135,13 @@ export class PaymentRepository {
     ).exec();
   }
 
-  listForOwner(ownerId: string) {
-    return Payment.find({ owner: ownerId }).sort({ createdAt: -1 }).exec();
+  listForOwner(ownerId: string, options: PageOptions, filters: { status?: PaymentStatus; purpose?: PaymentPurpose; planId?: string; from?: Date; to?: Date }) {
+    const query: Record<string, unknown> = { owner: ownerId };
+    if (filters.status) query.status = filters.status;
+    if (filters.purpose) query.purpose = filters.purpose;
+    if (filters.planId) query.plan = filters.planId;
+    if (filters.from || filters.to) query.createdAt = { ...(filters.from ? { $gte: filters.from } : {}), ...(filters.to ? { $lte: filters.to } : {}) };
+    return Promise.all([Payment.find(query).sort({ createdAt: -1 }).skip(options.skip).limit(options.limit).exec(), Payment.countDocuments(query).exec()]);
   }
 
   findForOwner(id: string, ownerId: string) {

@@ -13,7 +13,7 @@
 - **URL:** `/api/v1/auth/signup`
 - **Auth:** Not required
 
-Creates a customer account and returns a JWT. The server always assigns the `customer` role; clients cannot register themselves as admins.
+Creates an unverified customer or covered-person account and sends a verification link. Login and protected routes require email verification. Signup does not return an access token; the user logs in after verifying.
 
 **Body:**
 
@@ -22,7 +22,7 @@ Creates a customer account and returns a JWT. The server always assigns the `cus
   "name": "Ada Okafor",
   "email": "ada@example.com",
   "password": "secure123",
-  "role": "admin"
+  "role": "customer"
 }
 ```
 
@@ -31,16 +31,10 @@ Creates a customer account and returns a JWT. The server always assigns the `cus
 ```json
 {
   "success": true,
-  "message": "Signup successful",
+  "message": "Signup completed. Check your email to verify the account before logging in.",
   "data": {
-    "user": {
-      "id": "66f...",
-      "email": "ada@example.com",
-      "name": "Ada Okafor",
-      "role": "customer",
-      "isSuperAdmin": false
-    },
-    "token": "jwt-token"
+    "message": "Signup completed. Check your email to verify the account before logging in.",
+    "email": "ada@example.com"
   }
 }
 ```
@@ -49,7 +43,7 @@ Creates a customer account and returns a JWT. The server always assigns the `cus
 
 ---
 
-## roles: "admin", super_admin, customer, covered_person
+Only `customer` and `covered_person` roles can be selected at signup. Admin roles are created through the super-admin endpoint.
 
 </details>
 
@@ -60,7 +54,7 @@ Creates a customer account and returns a JWT. The server always assigns the `cus
 - **URL:** `/api/v1/auth/login`
 - **Auth:** Not required
 
-Logs in any existing user role.
+Logs in a verified account. Unverified accounts receive `401` until the email verification link is used.
 
 **Body:**
 
@@ -71,7 +65,7 @@ Logs in any existing user role.
 }
 ```
 
-**Response (200):** same shape as signup.
+**Response (200):** authenticated user profile and access token.
 
 **Errors:** `400` validation error, `401` invalid credentials.
 
@@ -98,6 +92,18 @@ Logs in only `admin` or `super_admin` users.
 </details>
 
 <details>
+<summary><strong>Email verification, password reset, and profile</strong></summary>
+
+- `POST /api/v1/auth/verify-email` with `{ "token": "..." }` verifies the one-time token (24-hour expiry).
+- `POST /api/v1/auth/resend-verification` with `{ "email": "ada@example.com" }` requests a new link. The response does not reveal whether an account exists.
+- `POST /api/v1/auth/forgot-password` with `{ "email": "ada@example.com" }` sends a one-time reset link when the account exists (one-hour expiry); the response is generic.
+- `POST /api/v1/auth/reset-password` with `{ "token": "...", "newPassword": "a-longer-password" }` changes the password and consumes the token.
+- `GET /api/v1/auth/me` returns the authenticated user's profile without password or token fields.
+
+Tokens are stored only as hashes. Set `FRONTEND_URL` so emailed links open the frontend's `/verify-email` and `/reset-password` pages. Auth endpoints have stricter per-IP limits; the API also has a general per-IP limit.
+</details>
+
+<details>
 <summary><strong>Admin auth endpoints</strong></summary>
 
 - **POST** `/api/v1/auth/admin` — create admin. Auth required: super admin.
@@ -114,7 +120,7 @@ Logs in only `admin` or `super_admin` users.
 <details>
 <summary><strong>Get all customers</strong></summary>
 
-- **method**: **GET** `/api/v1/auth/customers`
+- **GET** `/api/v1/auth/customers?page=1&limit=20&search=ada&emailVerified=true` returns `{ items, pagination }`. Search matches name/email; `emailVerified` accepts `true` or `false`. Requires admin or super admin.
 </details>
 
 ---
@@ -141,12 +147,10 @@ Returns only active packages that customers may select for new plans.
       "_id": "66f...",
       "name": "Classic Memorial",
       "description": "Sample test fixture package",
-      "photographyIncluded": true,
-      "videographyIncluded": false,
-      "coverageDetails": "Configured by admin",
-      "deliverables": ["Album"],
-      "monthlyContributionMinor": 1000000,
+      "features": ["Half-day photography", "Digital gallery"],
+      "amount": 1000000,
       "currency": "NGN",
+      "billingInterval": "monthly",
       "isActive": true
     }
   ]
@@ -167,6 +171,7 @@ Only packages with a successfully created Paystack monthly plan are listed as av
 - **Role:** Admin or super admin
 
 Returns active and inactive packages for administration.
+Supports `page`, `limit` (maximum 100), `search`, and `isActive=true|false`; response data contains `items` and pagination metadata.
 
 </details>
 
@@ -204,12 +209,12 @@ Customers can retrieve active packages. Admins can retrieve inactive packages to
   ],
   "amount": 1000000,
   "currency": "NGN",
+  "billingInterval": "monthly",
   "isActive": true
 }
 ```
 
-Customers cannot create packages or set package prices through plan endpoints.
-Creating a package also creates its Paystack recurring plan. If Paystack setup fails, package creation fails and no subscription-ready package is stored. A price, currency, or interval change creates a new Paystack plan; existing burial plans keep their snapshot and existing subscriptions keep their original provider plan code. Old Paystack plans are retained for those subscriptions.
+Customers cannot create packages or set package prices through plan endpoints. The local package is committed in a database transaction before the Paystack API is called, so Paystack is never called if the database write fails. While provider setup is in progress the package is marked pending; on provider failure it remains locally recorded as failed and is excluded from customer selection until an admin synchronizes it. A price, currency, or interval change creates a new Paystack plan; existing burial plans keep their snapshot and existing subscriptions keep their original provider plan code. Old Paystack plans are retained for those subscriptions.
 
 </details>
 
@@ -235,7 +240,7 @@ Accepts editable package fields, including `isActive` and `billingInterval` (`mo
 - **Auth:** Required
 - **Role:** Admin or super admin
 
-Creates a new Paystack plan using the package's current amount, currency, and interval, then stores the provider identifiers. Use this to prepare packages created before Paystack plan synchronization was added. A provider failure leaves the local package unchanged.
+Creates a new Paystack plan using the package's current amount, currency, and interval, then stores the provider identifiers and marks the package ready. Use this to prepare packages created before Paystack plan synchronization was added. A provider failure leaves the local package unchanged.
 
 </details>
 
@@ -293,6 +298,8 @@ Returns only plans owned by the authenticated user.
 - **URL:** `/api/v1/plans/admin`
 - **Auth:** Required
 - **Role:** Admin or super admin
+
+Supports `page`, `limit` (maximum 100), `status`, `ownerId`, `packageId`, and `search` filters. `search` matches covered-person name. Response data contains `items` and pagination metadata.
 </details>
 
 <details>
@@ -393,7 +400,7 @@ Verifies `x-paystack-signature` against the raw request body using HMAC SHA512. 
 - **URL:** `/api/v1/payments`
 - **Auth:** Required
 
-Returns only payment records owned by the authenticated user. Authorization codes and provider secrets are not exposed.
+Returns only payment records owned by the authenticated user. Supports `page`, `limit` (maximum 100), `status`, `purpose`, `planId`, `from`, and `to` filters. Authorization codes and provider secrets are not exposed. Response data contains `items` and pagination metadata.
 
 </details>
 
@@ -405,37 +412,6 @@ Returns only payment records owned by the authenticated user. Authorization code
 - **Auth:** Required
 
 Returns one owned payment record.
-
-</details>
-
----
-
-## Billing (legacy)
-
-The `/billing` routes and old billing scheduler remain in the codebase for transition visibility. They are not part of the Paystack Subscriptions flow. Manual recurring charging is disabled in the payment service; keep `BILLING_SCHEDULER_ENABLED=false`. Do not use these routes to collect new contributions.
-
-<details>
-<summary><strong>GET /billing/policy — View billing policy</strong></summary>
-
-- **Method:** `GET`
-- **URL:** `/api/v1/billing/policy`
-- **Auth:** Required
-- **Role:** Admin or super admin
-
-Returns the legacy configured grace-period and retry policy. These settings do not govern Paystack Subscriptions.
-
-</details>
-
-<details>
-<summary><strong>POST /billing/run-due — Run due billing batch</strong></summary>
-
-- **Method:** `POST`
-- **URL:** `/api/v1/billing/run-due`
-- **Auth:** Required
-- **Role:** Admin or super admin
-- **Availability:** Legacy endpoint; manual charging is disabled.
-
-The legacy route remains available, but scheduled manual charging is disabled in the payment service and this route must not be used to collect contributions. No retry, grace-period, or overdue policy is applied by the new flow.
 
 </details>
 
@@ -537,7 +513,7 @@ Returns only service requests owned by the authenticated user.
 - **Role:** Admin or super admin
 - **Query:** `status` optional; must be one of the service request statuses.
 
-Returns service requests for operations review.
+Returns service requests for operations review. Supports `page`, `limit` (maximum 100), `status`, `ownerId`, `planId`, `from`, and `to`; response data contains `items` and pagination metadata.
 
 </details>
 
@@ -647,18 +623,6 @@ Returns a short-lived signed Tigris download URL. Customers can access only thei
 </details>
 
 <details>
-<summary><strong>POST /service-requests/:id/under-review — Mark request under review</strong></summary>
-
-- **Method:** `POST`
-- **URL:** `/api/v1/service-requests/:id/under-review`
-- **Auth:** Required
-- **Role:** Admin or super admin
-
-Moves the service request to `Under_Review` and the linked plan to `Under_Review`.
-
-</details>
-
-<details>
 <summary><strong>PATCH /service-requests/:id/documents/:documentId/verify — Verify document</strong></summary>
 
 - **Method:** `PATCH`
@@ -682,65 +646,47 @@ If resubmission is required, the request moves to `More_Info_Required` and the c
 </details>
 
 <details>
-<summary><strong>POST /service-requests/:id/docs-verified — Mark all documents verified</strong></summary>
+<summary><strong>PATCH /service-requests/:id/status — Update service request status</strong></summary>
 
-- **Method:** `POST`
-- **URL:** `/api/v1/service-requests/:id/docs-verified`
+- **Method:** `PATCH`
+- **URL:** `/api/v1/service-requests/:id/status`
 - **Auth:** Required
 - **Role:** Admin or super admin
 
-Requires at least one current document and all current documents must be `Approved`.
-
-</details>
-
-<details>
-<summary><strong>POST /service-requests/:id/approve — Approve service request</strong></summary>
-
-- **Method:** `POST`
-- **URL:** `/api/v1/service-requests/:id/approve`
-- **Auth:** Required
-- **Role:** Admin or super admin
-
-Approves the request after review or document verification and moves the linked plan to `Approved`. Provider assignment is a later phase.
-
-</details>
-
-<details>
-<summary><strong>POST /service-requests/:id/reject — Reject service request</strong></summary>
-
-- **Method:** `POST`
-- **URL:** `/api/v1/service-requests/:id/reject`
-- **Auth:** Required
-- **Role:** Admin or super admin
-
-Rejects the request. A rejection reason is required and is shown to the user.
-
-**Body:**
+All administrative request status changes use this endpoint. `reason` is optional for every status; include it when rejecting or requesting more information so the customer receives useful context.
 
 ```json
-{
-  "reason": "The submitted information does not match the registered covered person."
-}
+{ "status": "Under_Review" }
 ```
 
-</details>
-
-<details>
-<summary><strong>POST /service-requests/:id/request-more-info — Request more information</strong></summary>
-
-- **Method:** `POST`
-- **URL:** `/api/v1/service-requests/:id/request-more-info`
-- **Auth:** Required
-- **Role:** Admin or super admin
-
-Moves the request to `More_Info_Required` with a reason. The user can resubmit documents through the upload and complete endpoints.
-
-**Body:**
+**Mark documents verified:** requires at least one current document and all current documents approved.
 
 ```json
-{
-  "reason": "Please upload a clearer death certificate and valid ID."
-}
+{ "status": "Docs_Verified" }
+```
+
+**Approve:**
+
+```json
+{ "status": "Approved" }
+```
+
+**Reject, with optional reason:**
+
+```json
+{ "status": "Rejected", "reason": "The submitted information does not match the registered covered person." }
+```
+
+**Request more information, with optional reason:**
+
+```json
+{ "status": "More_Info_Required", "reason": "Please upload a clearer death certificate and valid ID." }
+```
+
+**Cancel:**
+
+```json
+{ "status": "Cancelled" }
 ```
 
 </details>
@@ -759,21 +705,11 @@ JWT_REFRESH_SECRET=change-me-too
 PAYSTACK_SECRET_KEY=sk_test_xxx
 PAYSTACK_BASE_URL=https://api.paystack.co
 PAYSTACK_CALLBACK_URL=https://your-frontend.example.com/payments/callback
-
-BILLING_SCHEDULER_ENABLED=false
-BILLING_POLICY_CONFIGURED=false
-BILLING_GRACE_PERIOD_DAYS=0
-BILLING_RETRY_INTERVAL_DAYS=
-BILLING_MAX_RETRY_ATTEMPTS=0
-BILLING_LEASE_MINUTES=10
-BILLING_CONTINUE_OVERDUE=false
-CONTRIBUTION_REMINDERS_ENABLED=false
+FRONTEND_URL=https://your-frontend.example.com
 
 EMAIL_SERVICE_URL=https://email-service-one-alpha.vercel.app/api/mail/send
 SUPER_ADMIN_EMAIL=admin@example.com
 ```
-
-Production requires `PAYSTACK_SECRET_KEY`. Set `CONTRIBUTION_REMINDERS_ENABLED=true` to run the independent daily email reminder job at 9:00 AM Africa/Lagos. It sends reminders seven and three days before the expected contribution date, deduplicated by subscription, interval, and due date; failed email deliveries remain retryable. It never charges or retries payments. Keep the legacy `BILLING_SCHEDULER_ENABLED=false` while using subscriptions.
 
 ## Commands
 
@@ -783,11 +719,3 @@ npm run dev
 npm run build
 npm start
 ```
-
-## Remaining Product Decisions
-
-- Final package prices, deliverables, and provider costs must be configured by admins.
-- Grace-period duration, retry intervals, max attempts, and overdue behavior require approval before production billing is enabled.
-- Legal exceptions to the no-refund preference are not implemented as automatic refund rules.
-- Detailed eligibility, fraud-prevention, service coverage, and claim rules remain outside this phase.
-- Paystack plan creation, subscription creation after plan-code checkout, and webhook delivery should be confirmed in the merchant's test integration before production use.

@@ -7,7 +7,7 @@ export class ApiResponse<T> {
 
         public data?:T,
 
-        public meta?:any
+        public meta?:unknown
 
     ){}
 }

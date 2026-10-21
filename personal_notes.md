@@ -1,7 +1,6 @@
-### register covered person
-### get user profile
-### add rate limits
-email veerification
+get user profile
+add rate limits
+email verification
 
 reset password 
 
@@ -22,5 +21,3 @@ add pagination and filtering to listAll in ServiceRequestService
 unify service request status updates under one endpoint in ServiceRequestService, make fields unique to approve, reject and request more info optional so that they can be passed to the body for each status update, also write the documetation with difference instance examples of eachrequest
 
 add ceating of packages in a transaction so that if the database did not save,paystack will not succeed either, to avoid a plan existing on paystack and not in our database
-
-set nextPaymentDate in payment service after receiving success response from verification  updatePlanAfterPayment it should nt be undefined

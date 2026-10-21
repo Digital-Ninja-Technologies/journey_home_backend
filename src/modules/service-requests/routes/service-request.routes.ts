@@ -6,9 +6,8 @@ import { ServiceRequestController } from "../controllers/service-request.control
 import {
   CompleteServiceDocumentUploadValidator,
   CreateServiceRequestValidator,
-  RequestMoreInfoValidator,
   RequestServiceDocumentUploadValidator,
-  ReviewServiceRequestValidator,
+  AdminRequestStatusValidator,
   VerifyServiceDocumentValidator,
 } from "../validators/service-request.validator";
 
@@ -26,11 +25,7 @@ router.post("/:id/documents/upload-url", validate(RequestServiceDocumentUploadVa
 router.post("/:id/documents/complete", validate(CompleteServiceDocumentUploadValidator), controller.completeDocumentUpload);
 router.get("/:id/documents/:documentId/download-url", controller.getDocumentDownload);
 
-router.post("/:id/under-review", requireRole([UserRole.ADMIN]), controller.markUnderReview);
 router.patch("/:id/documents/:documentId/verify", requireRole([UserRole.ADMIN]), validate(VerifyServiceDocumentValidator), controller.verifyDocument);
-router.post("/:id/docs-verified", requireRole([UserRole.ADMIN]), controller.markDocsVerified);
-router.post("/:id/approve", requireRole([UserRole.ADMIN]), controller.approve);
-router.post("/:id/reject", requireRole([UserRole.ADMIN]), validate(ReviewServiceRequestValidator), controller.reject);
-router.post("/:id/request-more-info", requireRole([UserRole.ADMIN]), validate(RequestMoreInfoValidator), controller.requestMoreInfo);
+router.patch("/:id/status", requireRole([UserRole.ADMIN]), validate(AdminRequestStatusValidator), controller.updateStatus);
 
 export default router;

@@ -16,6 +16,9 @@ import {
   IServiceDocument,
 } from "../models/service-request.model";
 import { ServiceRequestRepository } from "../repositories/service-request.repository";
+import { AdminRequestStatusDto } from "../validators/service-request.validator";
+import { CreateServiceRequestDto, RequestServiceDocumentUploadDto, CompleteServiceDocumentUploadDto, VerifyServiceDocumentDto } from "../validators/service-request.validator";
+import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
 
 export class ServiceRequestService {
   private files = new FileService();
@@ -24,7 +27,7 @@ export class ServiceRequestService {
   private notifications = new NotificationService();
   private repository = new ServiceRequestRepository();
 
-  async create(ownerId: string, dto: any): Promise<IServiceRequest> {
+  async create(ownerId: string, dto: CreateServiceRequestDto): Promise<IServiceRequest> {
     const plan = await this.repository.findPlanForOwner(dto.planId, ownerId);
 
     if (!plan) throw new NotFoundError("Plan not found");
@@ -78,16 +81,9 @@ export class ServiceRequestService {
     return this.repository.listMine(ownerId);
   }
 
-  async listAll(status?: string): Promise<IServiceRequest[]> {
-    const validStatus =
-      status &&
-      Object.values(ServiceRequestStatus).includes(
-        status as ServiceRequestStatus,
-      )
-        ? (status as ServiceRequestStatus)
-        : undefined;
-
-    return this.repository.listAll(validStatus);
+  async listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date }): Promise<PaginatedResult<IServiceRequest>> {
+    const [items, total] = await this.repository.listAll(options, filters);
+    return pageResult(items, total, options);
   }
 
   async getForUser(
@@ -120,7 +116,7 @@ export class ServiceRequestService {
     return { request, documents };
   }
 
-  async requestDocumentUpload(requestId: string, ownerId: string, dto: any) {
+  async requestDocumentUpload(requestId: string, ownerId: string, dto: RequestServiceDocumentUploadDto) {
     const request = await this.repository.findRequest({
       _id: requestId,
       owner: ownerId,
@@ -153,7 +149,7 @@ export class ServiceRequestService {
   async completeDocumentUpload(
     requestId: string,
     ownerId: string,
-    dto: any,
+    dto: CompleteServiceDocumentUploadDto,
   ): Promise<IServiceDocument> {
     const request = await this.repository.findRequest({
       _id: requestId,
@@ -292,28 +288,12 @@ export class ServiceRequestService {
     return { document, url: result.url, expiresIn: 900 };
   }
 
-  // Moves the request into the review state.
-  async markUnderReview(
-    requestId: string,
-    adminId: string,
-  ): Promise<IServiceRequest> {
-    const request = await this.adminUpdateStatus(
-      requestId,
-      adminId,
-      ServiceRequestStatus.UNDER_REVIEW,
-    );
-
-    await this.repository.setPlanStatus(request.plan, PlanStatus.UNDER_REVIEW);
-
-    return request;
-  }
-
   // Updates document verification and requests resubmission when needed.
   async  verifyDocument(
     requestId: string,
     documentId: string,
     adminId: string,
-    dto: any,
+    dto: VerifyServiceDocumentDto,
   ): Promise<IServiceDocument> {
     const request = await this.repository.findRequestById(requestId);
 
@@ -366,187 +346,39 @@ export class ServiceRequestService {
     return document;
   }
 
-  // Marks the request verified only when all current documents are approved.
-  async markDocsVerified(
-    requestId: string,
-    adminId: string,
-  ): Promise<IServiceRequest> {
+  async updateStatus(requestId: string, adminId: string, dto: AdminRequestStatusDto): Promise<IServiceRequest> {
+    if (!Types.ObjectId.isValid(requestId)) throw new BadRequestError("Invalid service request id");
     const request = await this.repository.findRequestById(requestId);
-
     if (!request) throw new NotFoundError("Service request not found");
 
-    const documents = await this.repository.listCurrentDocuments(request._id);
-
-    if (documents.length === 0)
-      throw new BadRequestError(
-        "At least one document is required before verification",
-      );
-
-    if (
-      documents.some(
-        (doc) => doc.verificationStatus !== ServiceDocumentStatus.APPROVED,
-      )
-    ) {
-      throw new BadRequestError(
-        "All current documents must be approved before marking docs verified",
-      );
+    if (dto.status === ServiceRequestStatus.APPROVED && ![ServiceRequestStatus.DOCS_VERIFIED, ServiceRequestStatus.UNDER_REVIEW].includes(request.status)) {
+      throw new BadRequestError("Documents must be verified or the request under review before approval");
     }
-
-    request.status = ServiceRequestStatus.DOCS_VERIFIED;
-    request.verifiedAt = new Date();
+    if (dto.status === ServiceRequestStatus.DOCS_VERIFIED) {
+      const documents = await this.repository.listCurrentDocuments(request._id);
+      if (!documents.length || documents.some((doc) => doc.verificationStatus !== ServiceDocumentStatus.APPROVED)) {
+        throw new BadRequestError("At least one current document must exist and all current documents must be approved");
+      }
+      request.verifiedAt = new Date();
+    }
+    if (dto.status === ServiceRequestStatus.APPROVED) request.approvedAt = new Date();
+    if (dto.status === ServiceRequestStatus.REJECTED) { request.rejectionReason = dto.reason; request.rejectedAt = new Date(); }
+    if (dto.status === ServiceRequestStatus.MORE_INFO_REQUIRED) request.moreInfoReason = dto.reason;
+    request.status = dto.status;
     request.reviewedBy = new Types.ObjectId(adminId);
-
     await this.repository.saveRequest(request);
 
-    await this.notifications.record(
-      request.owner.toString(),
-      request.plan.toString(),
-      NotificationEvent.SERVICE_DOCUMENTS_APPROVED,
-      `${request._id}:docs_verified`,
-    );
-
-    await this.audit.record({
-      actorId: adminId,
-      action: "service_request.docs_verified",
-      resourceType: "ServiceRequest",
-      resourceId: request._id.toString(),
-    });
-
-    return request;
-  }
-
-  // Approves a request after its documents have been reviewed.
-  async approve(requestId: string, adminId: string): Promise<IServiceRequest> {
-    const request = await this.repository.findRequestById(requestId);
-
-    if (!request) throw new NotFoundError("Service request not found");
-
-    if (
-      ![
-        ServiceRequestStatus.DOCS_VERIFIED,
-        ServiceRequestStatus.UNDER_REVIEW,
-      ].includes(request.status)
-    ) {
-      throw new BadRequestError(
-        "Documents must be verified or under review before approval",
-      );
-    }
-
-    request.status = ServiceRequestStatus.APPROVED;
-    request.approvedAt = new Date();
-    request.reviewedBy = new Types.ObjectId(adminId);
-
-    await this.repository.saveRequest(request);
-
-    await this.repository.setPlanStatus(request.plan, PlanStatus.APPROVED);
-
-    await this.notifications.record(
-      request.owner.toString(),
-      request.plan.toString(),
-      NotificationEvent.SERVICE_REQUEST_APPROVED,
-      `${request._id}:approved`,
-    );
-
-    await this.audit.record({
-      actorId: adminId,
-      action: "service_request.approved",
-      resourceType: "ServiceRequest",
-      resourceId: request._id.toString(),
-    });
-
-    return request;
-  }
-
-  // Rejects the request and records the reason.
-  async reject(
-    requestId: string,
-    adminId: string,
-    reason?: string,
-  ): Promise<IServiceRequest> {
-    if (!reason) throw new BadRequestError("Rejection reason is required");
-
-    const request = await this.repository.updateRequest(requestId, {
-      $set: {
-        status: ServiceRequestStatus.REJECTED,
-        rejectionReason: reason,
-        rejectedAt: new Date(),
-        reviewedBy: adminId,
-      },
-    });
-
-    if (!request) throw new NotFoundError("Service request not found");
-
-    await this.notifications.record(
-      request.owner.toString(),
-      request.plan.toString(),
-      NotificationEvent.SERVICE_REQUEST_REJECTED,
-      `${request._id}:rejected`,
-    );
-
-    await this.audit.record({
-      actorId: adminId,
-      action: "service_request.rejected",
-      resourceType: "ServiceRequest",
-      resourceId: request._id.toString(),
-      metadata: { reason },
-    });
-
-    return request;
-  }
-
-  // Requests additional information from the owner.
-  async requestMoreInfo(
-    requestId: string,
-    adminId: string,
-    reason: string,
-  ): Promise<IServiceRequest> {
-    const request = await this.repository.updateRequest(requestId, {
-      $set: {
-        status: ServiceRequestStatus.MORE_INFO_REQUIRED,
-        moreInfoReason: reason,
-        reviewedBy: adminId,
-      },
-    });
-
-    if (!request) throw new NotFoundError("Service request not found");
-
-    await this.notifications.record(
-      request.owner.toString(),
-      request.plan.toString(),
-      NotificationEvent.SERVICE_MORE_INFO_REQUIRED,
-      `${request._id}:more_info`,
-    );
-
-    await this.audit.record({
-      actorId: adminId,
-      action: "service_request.more_info_required",
-      resourceType: "ServiceRequest",
-      resourceId: request._id.toString(),
-      metadata: { reason },
-    });
-
-    return request;
-  }
-
-  // Updates the request status and records the admin action.
-  private async adminUpdateStatus(
-    requestId: string,
-    adminId: string,
-    status: ServiceRequestStatus,
-  ): Promise<IServiceRequest> {
-    const request = await this.repository.updateRequest(requestId, {
-      $set: { status, reviewedBy: adminId },
-    });
-
-    if (!request) throw new NotFoundError("Service request not found");
-
-    await this.audit.record({
-      actorId: adminId,
-      action: `service_request.${status.toLowerCase()}`,
-      resourceType: "ServiceRequest",
-      resourceId: request._id.toString(),
-    });
-
+    if (dto.status === ServiceRequestStatus.UNDER_REVIEW) await this.repository.setPlanStatus(request.plan, PlanStatus.UNDER_REVIEW);
+    if (dto.status === ServiceRequestStatus.APPROVED) await this.repository.setPlanStatus(request.plan, PlanStatus.APPROVED);
+    const notificationEvents: Partial<Record<ServiceRequestStatus, NotificationEvent>> = {
+      [ServiceRequestStatus.DOCS_VERIFIED]: NotificationEvent.SERVICE_DOCUMENTS_APPROVED,
+      [ServiceRequestStatus.APPROVED]: NotificationEvent.SERVICE_REQUEST_APPROVED,
+      [ServiceRequestStatus.REJECTED]: NotificationEvent.SERVICE_REQUEST_REJECTED,
+      [ServiceRequestStatus.MORE_INFO_REQUIRED]: NotificationEvent.SERVICE_MORE_INFO_REQUIRED,
+    };
+    const notification = notificationEvents[dto.status];
+    if (notification) await this.notifications.record(request.owner.toString(), request.plan.toString(), notification, `${request._id}:${dto.status}`);
+    await this.audit.record({ actorId: adminId, action: `service_request.${dto.status.toLowerCase()}`, resourceType: "ServiceRequest", resourceId: request._id.toString(), metadata: dto.reason ? { reason: dto.reason } : undefined });
     return request;
   }
 }

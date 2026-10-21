@@ -8,7 +8,7 @@ export const errorResponse = (
 
     status = 500,
 
-    errors?: any
+    errors?: unknown
 
 ) => {
 

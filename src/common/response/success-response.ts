@@ -6,7 +6,7 @@ export const successResponse = <T>(
     message: string,
     data?: T,
     status = 200,
-    meta?: any
+    meta?: unknown
 ) => {
 
     return res.status(status).json(
