@@ -48,8 +48,9 @@ Creates a customer account and returns a JWT. The server always assigns the `cus
 **Errors:** `400` validation error, `409` email already exists.
 
 ---
-roles: "admin", super_admin, customer, covered_person
----
+
+## roles: "admin", super_admin, customer, covered_person
+
 </details>
 
 <details>
@@ -73,6 +74,7 @@ Logs in any existing user role.
 **Response (200):** same shape as signup.
 
 **Errors:** `400` validation error, `401` invalid credentials.
+
 </details>
 
 <details>
@@ -112,10 +114,8 @@ Logs in only `admin` or `super_admin` users.
 <details>
 <summary><strong>Get all customers</strong></summary>
 
-- **method**: **GET** `/api/v1/auth/customers` 
+- **method**: **GET** `/api/v1/auth/customers`
 </details>
-
-
 
 ---
 
@@ -154,6 +154,8 @@ Returns only active packages that customers may select for new plans.
 ```
 
 Money is stored in minor units. For NGN, `1000000` means ₦10,000.
+Only packages with a successfully created Paystack monthly plan are listed as available. Provider plan identifiers are kept internal and are not returned by package endpoints.
+
 </details>
 
 <details>
@@ -165,6 +167,7 @@ Money is stored in minor units. For NGN, `1000000` means ₦10,000.
 - **Role:** Admin or super admin
 
 Returns active and inactive packages for administration.
+
 </details>
 
 <details>
@@ -177,6 +180,7 @@ Returns active and inactive packages for administration.
 Customers can retrieve active packages. Admins can retrieve inactive packages too.
 
 **Errors:** `400` invalid id, `404` package not found.
+
 </details>
 
 <details>
@@ -193,17 +197,20 @@ Customers can retrieve active packages. Admins can retrieve inactive packages to
 {
   "name": "Classic Memorial",
   "description": "Configured commercial package terms",
-  "photographyIncluded": true,
-  "videographyIncluded": true,
-  "coverageDetails": "Admin-defined coverage details",
-  "deliverables": ["Photo album", "Edited video"],
-  "monthlyContributionMinor": 1000000,
+  "features": [
+    "Half-day photography",
+    "Digital gallery",
+    "Dedicated coordinator"
+  ],
+  "amount": 1000000,
   "currency": "NGN",
   "isActive": true
 }
 ```
 
 Customers cannot create packages or set package prices through plan endpoints.
+Creating a package also creates its Paystack recurring plan. If Paystack setup fails, package creation fails and no subscription-ready package is stored. A price, currency, or interval change creates a new Paystack plan; existing burial plans keep their snapshot and existing subscriptions keep their original provider plan code. Old Paystack plans are retained for those subscriptions.
+
 </details>
 
 <details>
@@ -214,9 +221,22 @@ Customers cannot create packages or set package prices through plan endpoints.
 - **Auth:** Required
 - **Role:** Admin or super admin
 
-Accepts any editable package fields, including `isActive`. Existing plans keep their package snapshot and contribution amount.
+Accepts editable package fields, including `isActive` and `billingInterval` (`monthly`). Commercial term changes create a new provider plan version. Existing plans keep their package snapshot and contribution amount.
 
 **Errors:** `400` invalid id or protected field, `404` package not found.
+
+</details>
+
+<details>
+<summary><strong>POST /packages/:id/sync-paystack — Create a Paystack plan for an existing package</strong></summary>
+
+- **Method:** `POST`
+- **URL:** `/api/v1/packages/:id/sync-paystack`
+- **Auth:** Required
+- **Role:** Admin or super admin
+
+Creates a new Paystack plan using the package's current amount, currency, and interval, then stores the provider identifiers. Use this to prepare packages created before Paystack plan synchronization was added. A provider failure leaves the local package unchanged.
+
 </details>
 
 ---
@@ -231,7 +251,7 @@ Accepts any editable package fields, including `isActive`. Existing plans keep t
 - **Auth:** Required
 - **Role:** Customer, admin, or super admin
 
-Creates a pending plan for the authenticated user. The owner is always derived from the JWT. The selected package must be active. The package terms and monthly contribution are snapshotted onto the plan.
+Creates a pending plan for the authenticated user. The owner is always derived from the JWT. 
 
 **Body:**
 
@@ -251,7 +271,8 @@ Creates a pending plan for the authenticated user. The owner is always derived f
 
 **Response (201):** plan with `status: "Pending"`, `coverageStatus: "Pending"`, `totalContributedMinor: 0`.
 
-**Business rules:** plan activation requires a verified successful initial payment. Creating a plan does not charge Paystack.
+**Business rules:** plan activation requires a verified successful initial payment.
+
 </details>
 
 <details>
@@ -262,6 +283,7 @@ Creates a pending plan for the authenticated user. The owner is always derived f
 - **Auth:** Required
 
 Returns only plans owned by the authenticated user.
+
 </details>
 
 <details>
@@ -281,6 +303,7 @@ Returns only plans owned by the authenticated user.
 - **Auth:** Required
 
 Customers can retrieve only their own plans. Admins can retrieve any plan.
+
 </details>
 
 <details>
@@ -300,6 +323,7 @@ Customers can retrieve only their own plans. Admins can retrieve any plan.
 ```
 
 Only explicit state transitions are allowed. Customers cannot change protected lifecycle states.
+
 </details>
 
 ---
@@ -312,7 +336,7 @@ Only explicit state transitions are allowed. Customers cannot change protected l
 - **Method:** `POST`
 - **URL:** `/api/v1/payments/plans/:planId/initialize-initial`
 - **Auth:** Required
-- **Paystack:** Initializes `/transaction/initialize`
+- **Paystack:** Initializes `/transaction/initialize` with the package's Paystack `plan_code`
 
 Creates or reuses a pending initial payment attempt for a pending owned plan. The amount and currency come from the plan snapshot.
 
@@ -331,7 +355,10 @@ Creates or reuses a pending initial payment attempt for a pending owned plan. Th
 }
 ```
 
-The plan remains pending until server-side verification or a verified webhook confirms success.
+This creates a pending local subscription relationship, then starts Paystack checkout for the configured recurring plan. Paystack creates the recurring subscription only after the customer pays. The plan remains pending until server-side verification or a verified webhook confirms the first payment;
+
+**Errors:** `404` plan not found or not owned by the caller, `400` plan is not pending or package is not Paystack-ready, `409` another pending checkout for the same customer and package must be completed first (this keeps Paystack's subscription event unambiguous).
+
 </details>
 
 <details>
@@ -342,7 +369,8 @@ The plan remains pending until server-side verification or a verified webhook co
 - **Auth:** Required
 - **Paystack:** Calls `/transaction/verify/:reference`
 
-Verifies Paystack status, reference, amount, currency, and internal association before applying the result. Successful initial payments activate the plan, count one contribution, and store reusable authorization metadata only when Paystack marks it reusable.
+Verifies Paystack status, reference, amount, currency, and internal association before applying the result. Successful initial payments activate the plan and count one contribution exactly once. Journey Home does not store reusable authorization codes; Paystack Subscriptions handles subsequent collection.
+
 </details>
 
 <details>
@@ -352,9 +380,10 @@ Verifies Paystack status, reference, amount, currency, and internal association 
 - **URL:** `/api/v1/payments/webhooks/paystack`
 - **Auth:** Paystack signature required
 
-Verifies `x-paystack-signature` against the raw request body using HMAC SHA512. Processes `charge.success` by re-verifying the transaction server-side and applying it idempotently. Processes `charge.failed` as a failed attempt when no successful payment has already been recorded. Unsupported events are safely ignored after durable event recording.
+Verifies `x-paystack-signature` against the raw request body using HMAC SHA512. Re-verifies `charge.success` transactions server-side, links `subscription.create` to the pending local subscription, and applies successful recurring charges once. Invoice events synchronize a provider-reported next payment date where present. Events are durably recorded; repeated or out-of-order events can be retried without double-counting a contribution.
 
 **Idempotency:** provider events are deduplicated by event name plus provider transaction reference/id. Duplicate deliveries do not double-count contributions.
+
 </details>
 
 <details>
@@ -365,6 +394,7 @@ Verifies `x-paystack-signature` against the raw request body using HMAC SHA512. 
 - **Auth:** Required
 
 Returns only payment records owned by the authenticated user. Authorization codes and provider secrets are not exposed.
+
 </details>
 
 <details>
@@ -375,11 +405,14 @@ Returns only payment records owned by the authenticated user. Authorization code
 - **Auth:** Required
 
 Returns one owned payment record.
+
 </details>
 
 ---
 
-## Billing
+## Billing (legacy)
+
+The `/billing` routes and old billing scheduler remain in the codebase for transition visibility. They are not part of the Paystack Subscriptions flow. Manual recurring charging is disabled in the payment service; keep `BILLING_SCHEDULER_ENABLED=false`. Do not use these routes to collect new contributions.
 
 <details>
 <summary><strong>GET /billing/policy — View billing policy</strong></summary>
@@ -389,7 +422,8 @@ Returns one owned payment record.
 - **Auth:** Required
 - **Role:** Admin or super admin
 
-Returns the configured grace-period and retry policy. Production billing will not start unless `BILLING_POLICY_CONFIGURED=true`.
+Returns the legacy configured grace-period and retry policy. These settings do not govern Paystack Subscriptions.
+
 </details>
 
 <details>
@@ -399,24 +433,39 @@ Returns the configured grace-period and retry policy. Production billing will no
 - **URL:** `/api/v1/billing/run-due`
 - **Auth:** Required
 - **Role:** Admin or super admin
-- **Paystack:** Uses `/transaction/charge_authorization` for reusable authorizations
+- **Availability:** Legacy endpoint; manual charging is disabled.
 
-Claims due schedules with a durable lease, creates recurring payment attempts, and charges Paystack using stored reusable authorization metadata. Failed payments start grace/retry handling according to the configured policy.
+The legacy route remains available, but scheduled manual charging is disabled in the payment service and this route must not be used to collect contributions. No retry, grace-period, or overdue policy is applied by the new flow.
 
-**Response (200):**
-
-```json
-{
-  "success": true,
-  "message": "Billing run completed",
-  "data": {
-    "attempted": 1
-  }
-}
-```
-
-**Business rules:** ambiguous provider outcomes are not treated as successful contributions. Failed payments do not increase totals. Duplicate workers are guarded by leases and unique payment references.
 </details>
+
+---
+
+## Subscriptions
+
+<details>
+<summary><strong>GET /subscriptions — List my subscriptions</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/subscriptions`
+- **Auth:** Required
+
+Returns the authenticated owner's local subscription records, including local status and expected next payment date. Provider subscription/plan identifiers are retained for reconciliation.
+
+</details>
+
+<details>
+<summary><strong>GET /subscriptions/:id — Get subscription</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/subscriptions/:id`
+- **Auth:** Required
+
+Returns one subscription owned by the authenticated user. Other owners receive `404`.
+
+</details>
+
+Paystack collects recurring contributions. The subscription record tracks provider status independently from the burial plan; payment records track each transaction outcome.
 
 ---
 
@@ -430,7 +479,10 @@ Claims due schedules with a durable lease, creates recurring payment attempts, a
 - **Auth:** Required
 
 Returns durable notification records for the authenticated user. Notification records use a dedupe key so repeated webhooks or billing jobs do not send repeated emails for the same event.
+
 </details>
+
+The independent contribution reminder job sends email at 7 days and 3 days before the expected payment date reported by Paystack. It deduplicates by subscription, reminder interval, and due date. Failed reminder deliveries are retried daily while that due date is still current; the job sends emails only and never charges or retries a payment.
 
 ---
 
@@ -462,6 +514,7 @@ Creates a service request for one of the authenticated user's plans. The plan mu
 **Response (201):** service request with `status: "Submitted"`.
 
 **Business rules:** submitting a request moves the plan into `Service_Request`. Required document rules are configurable operationally; the implementation supports death certificate, valid identification, and other proof documents.
+
 </details>
 
 <details>
@@ -472,6 +525,7 @@ Creates a service request for one of the authenticated user's plans. The plan mu
 - **Auth:** Required
 
 Returns only service requests owned by the authenticated user.
+
 </details>
 
 <details>
@@ -484,6 +538,7 @@ Returns only service requests owned by the authenticated user.
 - **Query:** `status` optional; must be one of the service request statuses.
 
 Returns service requests for operations review.
+
 </details>
 
 <details>
@@ -494,6 +549,7 @@ Returns service requests for operations review.
 - **Auth:** Required
 
 Customers can retrieve only their own requests. Admins can retrieve any request. The response includes the request and document records, but not public file URLs.
+
 </details>
 
 <details>
@@ -534,6 +590,7 @@ Creates a pending private file record and returns a signed upload URL. Supported
 ```
 
 The frontend uploads the binary file directly to `uploadUrl`, then calls the complete endpoint.
+
 </details>
 
 <details>
@@ -557,6 +614,7 @@ Verifies the uploaded Tigris object with `HeadObject`, marks the file uploaded, 
 ```
 
 `replacesDocumentId` is optional and is used for resubmission after a document was marked `Requires_Resubmission`.
+
 </details>
 
 <details>
@@ -585,6 +643,7 @@ Returns a short-lived signed Tigris download URL. Customers can access only thei
   }
 }
 ```
+
 </details>
 
 <details>
@@ -596,6 +655,7 @@ Returns a short-lived signed Tigris download URL. Customers can access only thei
 - **Role:** Admin or super admin
 
 Moves the service request to `Under_Review` and the linked plan to `Under_Review`.
+
 </details>
 
 <details>
@@ -618,6 +678,7 @@ Approves a document or requests resubmission. A reason is required when requesti
 ```
 
 If resubmission is required, the request moves to `More_Info_Required` and the customer can upload a replacement document.
+
 </details>
 
 <details>
@@ -629,6 +690,7 @@ If resubmission is required, the request moves to `More_Info_Required` and the c
 - **Role:** Admin or super admin
 
 Requires at least one current document and all current documents must be `Approved`.
+
 </details>
 
 <details>
@@ -640,6 +702,7 @@ Requires at least one current document and all current documents must be `Approv
 - **Role:** Admin or super admin
 
 Approves the request after review or document verification and moves the linked plan to `Approved`. Provider assignment is a later phase.
+
 </details>
 
 <details>
@@ -659,6 +722,7 @@ Rejects the request. A rejection reason is required and is shown to the user.
   "reason": "The submitted information does not match the registered covered person."
 }
 ```
+
 </details>
 
 <details>
@@ -678,6 +742,7 @@ Moves the request to `More_Info_Required` with a reason. The user can resubmit d
   "reason": "Please upload a clearer death certificate and valid ID."
 }
 ```
+
 </details>
 
 ---
@@ -702,12 +767,13 @@ BILLING_RETRY_INTERVAL_DAYS=
 BILLING_MAX_RETRY_ATTEMPTS=0
 BILLING_LEASE_MINUTES=10
 BILLING_CONTINUE_OVERDUE=false
+CONTRIBUTION_REMINDERS_ENABLED=false
 
 EMAIL_SERVICE_URL=https://email-service-one-alpha.vercel.app/api/mail/send
 SUPER_ADMIN_EMAIL=admin@example.com
 ```
 
-Production requires `PAYSTACK_SECRET_KEY`. If `BILLING_SCHEDULER_ENABLED=true` in production, `BILLING_POLICY_CONFIGURED=true` and approved grace/retry values are required.
+Production requires `PAYSTACK_SECRET_KEY`. Set `CONTRIBUTION_REMINDERS_ENABLED=true` to run the independent daily email reminder job at 9:00 AM Africa/Lagos. It sends reminders seven and three days before the expected contribution date, deduplicated by subscription, interval, and due date; failed email deliveries remain retryable. It never charges or retries payments. Keep the legacy `BILLING_SCHEDULER_ENABLED=false` while using subscriptions.
 
 ## Commands
 
@@ -724,4 +790,4 @@ npm start
 - Grace-period duration, retry intervals, max attempts, and overdue behavior require approval before production billing is enabled.
 - Legal exceptions to the no-refund preference are not implemented as automatic refund rules.
 - Detailed eligibility, fraud-prevention, service coverage, and claim rules remain outside this phase.
-- Paystack reusable authorization behavior must be confirmed in test mode for the enabled payment methods and account configuration.
+- Paystack plan creation, subscription creation after plan-code checkout, and webhook delivery should be confirmed in the merchant's test integration before production use.

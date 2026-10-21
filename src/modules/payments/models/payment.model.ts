@@ -14,14 +14,13 @@ export enum PaymentStatus {
   PROCESSING = "Processing",
   SUCCESSFUL = "Successful",
   FAILED = "Failed",
-  REFUNDED = "Refunded",
   CANCELLED = "Cancelled",
 }
 
 export interface IPayment extends Document {
   owner: Types.ObjectId;
   plan: Types.ObjectId;
-  amountMinor: number;
+  amount: number;
   currency: string;
   reference: string;
   providerReference?: string;
@@ -29,7 +28,6 @@ export interface IPayment extends Document {
   purpose: PaymentPurpose;
   status: PaymentStatus;
   billingCycle?: string;
-  authorization?: Types.ObjectId;
   failureCode?: string;
   failureMessage?: string;
   providerTransactionId?: string;
@@ -55,7 +53,7 @@ const PaymentSchema = new Schema<IPayment>(
       index: true,
     },
 
-    amountMinor: { type: Number, required: true, min: 1 },
+    amount: { type: Number, required: true, min: 1 },
 
     currency: { type: String, required: true, uppercase: true },
 
@@ -83,11 +81,6 @@ const PaymentSchema = new Schema<IPayment>(
     },
 
     billingCycle: { type: String },
-
-    authorization: {
-      type: Schema.Types.ObjectId,
-      ref: "PaymentAuthorization",
-    },
 
     failureCode: { type: String },
 

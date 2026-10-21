@@ -38,4 +38,6 @@ router.patch(
   controller.update,
 );
 
+router.post("/:id/sync-paystack", authRequired, requireRole([UserRole.ADMIN]), controller.syncPaystackPlan);
+
 export default router;

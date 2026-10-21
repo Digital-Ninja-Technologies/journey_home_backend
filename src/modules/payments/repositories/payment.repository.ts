@@ -5,7 +5,6 @@ import {
   Plan,
   PlanStatus,
 } from "../../plans/models/plan.model";
-import { PaymentAuthorization } from "../models/payment-authorization.model";
 import {
   Payment,
   PaymentPurpose,
@@ -13,6 +12,7 @@ import {
   IPayment,
 } from "../models/payment.model";
 import { PaystackEvent } from "../models/paystack-event.model";
+import { Package } from "../../packages/models/package.model";
 
 export class PaymentRepository {
   findPlanForOwner(planId: string, ownerId: string) {
@@ -27,6 +27,23 @@ export class PaymentRepository {
 
   findUserEmail(ownerId: string) {
     return User.findById(ownerId).select("email").lean();
+  }
+
+  findOwnerByEmail(email?: string) {
+    return email
+      ? User.findOne({ email: email.toLowerCase() }).select("_id").lean()
+      : null;
+  }
+
+  findPlanPackage(packageId: Types.ObjectId | string) {
+    return Package.findById(packageId).select("paystackPlanCode").exec();
+  }
+
+  updatePlanNextPaymentDate(planId: Types.ObjectId | string, date: Date) {
+    return Plan.updateOne(
+      { _id: planId },
+      { $set: { nextPaymentDate: date } },
+    ).exec();
   }
 
   findReusableInitial(plan: Types.ObjectId, owner: string) {
@@ -71,42 +88,22 @@ export class PaymentRepository {
   updatePlanAfterPayment(
     id: Types.ObjectId,
     amountMinor: number,
-    nextPaymentDate: Date,
+    nextPaymentDate: Date | undefined,
     session: ClientSession,
   ) {
     return Plan.updateOne(
       { _id: id },
       {
-        $inc: { totalContributedMinor: amountMinor },
+        $inc: { totalContributedAmount: amountMinor },
         $set: {
           status: PlanStatus.ACTIVE,
           coverageStatus: CoverageStatus.COVERED,
           lastPaymentAt: new Date(),
-          nextPaymentDate,
+          ...(nextPaymentDate ? { nextPaymentDate } : {}),
         },
       },
       { session },
     ).exec();
-  }
-
-  upsertAuthorization(
-    filter: Record<string, unknown>,
-    data: Record<string, unknown>,
-    session: ClientSession,
-  ) {
-    return PaymentAuthorization.updateOne(
-      filter,
-      { $set: data },
-      { upsert: true, session },
-    ).exec();
-  }
-
-  findReusableAuthorization(planId: Types.ObjectId) {
-    return PaymentAuthorization.findOne({
-      plan: planId,
-      active: true,
-      reusable: true,
-    }).exec();
   }
 
   createPaystackEvent(eventKey: string, event: string, reference?: string) {
@@ -140,7 +137,7 @@ export class PaymentRepository {
   listForOwner(ownerId: string) {
     return Payment.find({ owner: ownerId }).sort({ createdAt: -1 }).exec();
   }
-  
+
   findForOwner(id: string, ownerId: string) {
     return Payment.findOne({ _id: id, owner: ownerId }).exec();
   }

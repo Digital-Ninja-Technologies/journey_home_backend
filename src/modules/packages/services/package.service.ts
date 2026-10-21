@@ -3,6 +3,7 @@ import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { IJourneyPackage, IPackageSnapshot } from "../models/package.model";
 import { PackageRepository } from "../repositories/package.repository";
+import { PaystackService } from "../../payments/services/paystack.service";
 
 export class PackageService {
   private repository = new PackageRepository();
@@ -35,9 +36,28 @@ export class PackageService {
   ): Promise<IJourneyPackage> {
     const newAdminId = new Types.ObjectId(adminId);
 
+    const currency = (dto.currency || "NGN").toUpperCase();
+
+    const interval = dto.billingInterval || "monthly";
+
+    const providerPlan = await new PaystackService().createPlan({
+      name: dto.name!,
+      amount: dto.amount!,
+      currency,
+      interval,
+      description: dto.description,
+    });
+
     return this.repository.create({
       ...dto,
       currency: (dto.currency || "NGN").toUpperCase(),
+      billingInterval: interval,
+      paystackPlanCode: providerPlan.plan_code,
+      paystackPlanId: providerPlan.id,
+      paystackPlanAmount: providerPlan.amount,
+      paystackPlanCurrency: providerPlan.currency,
+      paystackPlanInterval: providerPlan.interval,
+      paystackPlanSyncedAt: new Date(),
       createdBy: newAdminId,
       updatedBy: newAdminId,
     });
@@ -48,8 +68,10 @@ export class PackageService {
     dto: Partial<IJourneyPackage>,
     adminId: string,
   ): Promise<IJourneyPackage> {
+
     if (!Types.ObjectId.isValid(id))
       throw new BadRequestError("Invalid package id");
+    
     const blocked = ["_id", "createdBy", "createdAt", "updatedAt"];
 
     if (Object.keys(dto).some((key) => blocked.includes(key))) {
@@ -58,9 +80,49 @@ export class PackageService {
 
     const newAdminId = new Types.ObjectId(adminId);
 
+    const current = await this.repository.findById(id, true);
+
+    if (!current) throw new NotFoundError("Package not found");
+
+    const commercialChange =
+      (dto.amount !== undefined &&
+        dto.amount !== current.amount) ||
+      
+      (dto.currency !== undefined &&
+        dto.currency.toUpperCase() !== current.currency) ||
+      
+      (dto.billingInterval !== undefined &&
+        dto.billingInterval !== current.billingInterval);
+    
+    let providerFields: Partial<IJourneyPackage> = {};
+
+    if (commercialChange) {
+      const providerPlan = await new PaystackService().createPlan({
+        name: dto.name || current.name,
+        amount:
+          dto.amount ?? current.amount,
+        
+        currency: (dto.currency || current.currency).toUpperCase(),
+
+        interval: dto.billingInterval || current.billingInterval,
+
+        description: dto.description || current.description,
+      });
+
+      providerFields = {
+        paystackPlanCode: providerPlan.plan_code,
+
+        paystackPlanId: providerPlan.id,
+        paystackPlanAmount: providerPlan.amount,
+        paystackPlanCurrency: providerPlan.currency,
+        paystackPlanInterval: providerPlan.interval,
+        paystackPlanSyncedAt: new Date(),
+      };
+    }
     const pkg = await this.repository.update(id, {
       ...dto,
       currency: dto.currency?.toUpperCase(),
+      ...providerFields,
       updatedBy: newAdminId,
     });
 
@@ -68,17 +130,53 @@ export class PackageService {
     return pkg;
   }
 
+  async syncPaystackPlan(id: string): Promise<IJourneyPackage> {
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestError("Invalid package id");
+    const pkg = await this.repository.findById(id, true);
+
+    if (!pkg) throw new NotFoundError("Package not found");
+
+    const providerPlan = await new PaystackService().createPlan({
+      name: pkg.name,
+      amount: pkg.amount,
+      currency: pkg.currency,
+      interval: pkg.billingInterval,
+      description: pkg.description,
+    });
+
+    const updated = await this.repository.update(id, {
+      paystackPlanCode: providerPlan.plan_code,
+      paystackPlanId: providerPlan.id,
+      paystackPlanAmount: providerPlan.amount,
+      paystackPlanCurrency: providerPlan.currency,
+      paystackPlanInterval: providerPlan.interval,
+      paystackPlanSyncedAt: new Date(),
+    });
+    if (!updated) throw new NotFoundError("Package not found");
+    return updated;
+  }
+
   toSnapshot(pkg: IJourneyPackage): IPackageSnapshot {
     return {
       packageId: pkg._id,
       name: pkg.name,
       description: pkg.description,
-      photographyIncluded: pkg.photographyIncluded,
-      videographyIncluded: pkg.videographyIncluded,
-      coverageDetails: pkg.coverageDetails,
-      deliverables: pkg.deliverables || [],
-      monthlyContributionMinor: pkg.monthlyContributionMinor,
+      features: pkg.features || [],
+      amount: pkg.amount,
       currency: pkg.currency,
+      billingInterval: pkg.billingInterval,
     };
+  }
+
+  publicView(pkg: IJourneyPackage) {
+    const value = pkg.toObject();
+    delete value.paystackPlanCode;
+    delete value.paystackPlanId;
+    delete value.paystackPlanAmount;
+    delete value.paystackPlanCurrency;
+    delete value.paystackPlanInterval;
+    delete value.paystackPlanSyncedAt;
+    return value;
   }
 }

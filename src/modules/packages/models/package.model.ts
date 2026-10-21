@@ -4,23 +4,25 @@ export interface IPackageSnapshot {
   packageId: Types.ObjectId;
   name: string;
   description: string;
-  photographyIncluded: boolean;
-  videographyIncluded: boolean;
-  coverageDetails?: string;
-  deliverables: string[];
-  monthlyContributionMinor: number;
+  features: string[];
+  amount: number;
   currency: string;
+  billingInterval: string;
 }
 
 export interface IJourneyPackage extends Document {
   name: string;
   description: string;
-  photographyIncluded: boolean;
-  videographyIncluded: boolean;
-  coverageDetails?: string;
-  deliverables: string[];
-  monthlyContributionMinor: number;
+  features: string[];
+  amount: number;
   currency: string;
+  billingInterval: "monthly";
+  paystackPlanCode?: string;
+  paystackPlanId?: number;
+  paystackPlanAmount?: number;
+  paystackPlanCurrency?: string;
+  paystackPlanInterval?: string;
+  paystackPlanSyncedAt?: Date;
   isActive: boolean;
   createdBy?: Types.ObjectId;
   updatedBy?: Types.ObjectId;
@@ -31,15 +33,36 @@ export interface IJourneyPackage extends Document {
 const JourneyPackageSchema = new Schema<IJourneyPackage>(
   {
     name: { type: String, required: true, trim: true, unique: true },
+
     description: { type: String, required: true, trim: true },
-    photographyIncluded: { type: Boolean, required: true, default: false },
-    videographyIncluded: { type: Boolean, required: true, default: false },
-    coverageDetails: { type: String, trim: true },
-    deliverables: [{ type: String, trim: true }],
-    monthlyContributionMinor: { type: Number, required: true, min: 1 },
+
+    features: [{ type: String, trim: true }],
+    amount: { type: Number, required: true, min: 1 },
+
     currency: { type: String, required: true, uppercase: true, default: "NGN" },
+
+    billingInterval: {
+      type: String,
+      enum: ["monthly"],
+      default: "monthly",
+      required: true,
+    },
+    paystackPlanCode: { type: String, index: true },
+
+    paystackPlanId: { type: Number },
+
+    paystackPlanAmount: { type: Number },
+
+    paystackPlanCurrency: { type: String },
+
+    paystackPlanInterval: { type: String },
+
+    paystackPlanSyncedAt: { type: Date },
+
     isActive: { type: Boolean, required: true, default: true, index: true },
+
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
+
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true },

@@ -3,17 +3,6 @@ import crypto from "crypto";
 import { env } from "../../../config/application";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 
-export interface PaystackAuthorizationData {
-  authorization_code?: string;
-  reusable?: boolean;
-  channel?: string;
-  card_type?: string;
-  bank?: string;
-  last4?: string;
-  exp_month?: string;
-  exp_year?: string;
-}
-
 export interface PaystackTransactionData {
   id?: number;
   status?: string;
@@ -21,8 +10,23 @@ export interface PaystackTransactionData {
   amount?: number;
   currency?: string;
   gateway_response?: string;
-  authorization?: PaystackAuthorizationData;
   customer?: { email?: string; customer_code?: string };
+}
+
+export interface PaystackPlanData {
+  id: number;
+  plan_code: string;
+  amount: number;
+  currency: string;
+  interval: string;
+}
+export interface PaystackSubscriptionData {
+  subscription_code: string;
+  status: string;
+  customer?: { customer_code?: string; email?: string } | number;
+  plan?: { plan_code?: string } | number;
+  next_payment_date?: string;
+  createdAt?: string;
 }
 
 export class PaystackService {
@@ -55,7 +59,12 @@ export class PaystackService {
       .update(rawBody)
       .digest("hex");
 
-    return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(signature));
+    const expected = Buffer.from(hash);
+    const received = Buffer.from(signature);
+    return (
+      expected.length === received.length &&
+      crypto.timingSafeEqual(expected, received)
+    );
   }
 
   async initializeTransaction(payload: {
@@ -64,6 +73,7 @@ export class PaystackService {
     currency: string;
     reference: string;
     metadata?: Record<string, unknown>;
+    plan?: string;
   }): Promise<{
     authorization_url: string;
     access_code: string;
@@ -73,24 +83,27 @@ export class PaystackService {
     return data.data;
   }
 
-  async verifyTransaction(reference: string): Promise<PaystackTransactionData> {
+  async createPlan(payload: {
+    name: string;
+    amount: number;
+    currency: string;
+    interval: string;
+    description?: string;
+  }): Promise<PaystackPlanData> {
+    const { data } = await this.client.post("/plan", payload);
+    return data.data;
+  }
+
+  async fetchSubscription(code: string): Promise<PaystackSubscriptionData> {
     const { data } = await this.client.get(
-      `/transaction/verify/${encodeURIComponent(reference)}`,
+      `/subscription/${encodeURIComponent(code)}`,
     );
     return data.data;
   }
 
-  async chargeAuthorization(payload: {
-    email: string;
-    amount: number;
-    currency: string;
-    authorization_code: string;
-    reference: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<PaystackTransactionData> {
-    const { data } = await this.client.post(
-      "/transaction/charge_authorization",
-      payload,
+  async verifyTransaction(reference: string): Promise<PaystackTransactionData> {
+    const { data } = await this.client.get(
+      `/transaction/verify/${encodeURIComponent(reference)}`,
     );
     return data.data;
   }

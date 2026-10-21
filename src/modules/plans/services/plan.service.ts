@@ -2,10 +2,8 @@ import mongoose, { Types } from "mongoose";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { PackageService } from "../../packages/services/package.service";
-import { BillingScheduleService } from "../../billing/services/billing-schedule.service";
 import { PlanStatus, IPlan, CoverageStatus } from "../models/plan.model";
 import { PlanRepository } from "../repositories/plan.repository";
-import { addOneMonthPreservingBillingDay } from "./date.service";
 import { PlanStateService } from "./plan-state.service";
 
 export class PlanService {
@@ -17,13 +15,12 @@ export class PlanService {
     // Load the selected package and capture its terms for this plan.
     const pkg = await this.packages.getPackage(dto.packageId, false);
 
-    const snapshot = this.packages.toSnapshot(pkg);
+    const packageDetails = this.packages.toSnapshot(pkg);
 
-    // Establish the plan's start date and first monthly payment date.
+    if (!pkg.paystackPlanCode) throw new BadRequestError("Package subscription setup is incomplete");
     const startDate = new Date();
-    const nextPaymentDate = addOneMonthPreservingBillingDay(startDate);
 
-    // start transaction for plan creation and billng schedule creation
+    // Keep plan creation transactional.
     const session = await mongoose.startSession();
 
     try {
@@ -35,7 +32,7 @@ export class PlanService {
           {
             owner: ownerId,
             package: pkg._id,
-            packageSnapshot: snapshot,
+            packageDetails: packageDetails,
             coveredPerson: {
               ...dto.coveredPerson,
 
@@ -44,15 +41,14 @@ export class PlanService {
                 : undefined,
             },
 
-            contributionAmountMinor: snapshot.monthlyContributionMinor,
+            amount: packageDetails.amount,
 
-            currency: snapshot.currency,
+            currency: packageDetails.currency,
 
-            billingFrequency: "monthly",
+            billingInterval: "monthly",
 
             startDate,
 
-            nextPaymentDate,
 
             status: PlanStatus.PENDING,
 
@@ -61,8 +57,6 @@ export class PlanService {
           session,
         );
 
-        // Create the initial billing schedule
-        await new BillingScheduleService().createInitialSchedule(plan, session);
       });
 
       return plan;
@@ -111,7 +105,9 @@ export class PlanService {
   }
 
   async adminTransition(planId: string, status: PlanStatus): Promise<IPlan> {
+
     const plan = await this.getPlan(planId);
+     
     this.state.assertTransition(plan.status, status);
 
     plan.status = status;

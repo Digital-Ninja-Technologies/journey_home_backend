@@ -22,6 +22,7 @@ export enum NotificationEvent {
 
 export enum NotificationStatus {
   PENDING = "Pending",
+  PROCESSING = "Processing",
   SENT = "Sent",
   FAILED = "Failed",
 }

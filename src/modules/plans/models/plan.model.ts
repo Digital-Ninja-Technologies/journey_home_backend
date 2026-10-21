@@ -36,14 +36,14 @@ export interface ICoveredPerson {
 export interface IPlan extends Document {
   owner: Types.ObjectId;
   package: Types.ObjectId;
-  packageSnapshot: IPackageSnapshot;
+  packageDetails: IPackageSnapshot;
   coveredPerson: ICoveredPerson;
-  contributionAmountMinor: number;
+  amount: number;
   currency: string;
-  billingFrequency: "monthly";
+  billingInterval: "monthly";
   startDate: Date;
   nextPaymentDate: Date;
-  totalContributedMinor: number;
+  totalContributedAmount: number;
   status: PlanStatus;
   coverageStatus: CoverageStatus;
   lastPaymentAt?: Date;
@@ -51,7 +51,7 @@ export interface IPlan extends Document {
   updatedAt: Date;
 }
 
-const PackageSnapshotSchema = new Schema<IPackageSnapshot>(
+const PackageDetailsSchema = new Schema<IPackageSnapshot>(
   {
     packageId: { type: Schema.Types.ObjectId, ref: "Package", required: true },
 
@@ -59,15 +59,9 @@ const PackageSnapshotSchema = new Schema<IPackageSnapshot>(
 
     description: { type: String, required: true },
 
-    photographyIncluded: { type: Boolean, required: true },
+    features: [{ type: String }],
 
-    videographyIncluded: { type: Boolean, required: true },
-
-    coverageDetails: { type: String },
-
-    deliverables: [{ type: String }],
-
-    monthlyContributionMinor: {
+    amount: {
       type: Number,
       required: true,
     },
@@ -106,21 +100,21 @@ const PlanSchema = new Schema<IPlan>(
     },
     package: { type: Schema.Types.ObjectId, ref: "Package", required: true },
 
-    packageSnapshot: { type: PackageSnapshotSchema, required: true },
+    packageDetails: { type: PackageDetailsSchema, required: true },
 
     coveredPerson: { type: CoveredPersonSchema, required: true },
 
-    contributionAmountMinor: { type: Number, required: true, min: 1 },
+    amount: { type: Number, required: true, min: 1 },
 
     currency: { type: String, required: true, uppercase: true },
 
-    billingFrequency: { type: String, enum: ["monthly"], default: "monthly" },
+    billingInterval: { type: String, enum: ["monthly"], default: "monthly" },
 
     startDate: { type: Date, required: true },
 
-    nextPaymentDate: { type: Date, required: true },
+    nextPaymentDate: { type: Date },
 
-    totalContributedMinor: {
+    totalContributedAmount: {
       type: Number,
       required: true,
       default: 0,

@@ -1,11 +1,8 @@
 import mongoose, { Types } from "mongoose";
 import { v4 as uuidv4 } from "uuid";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
+import { ConflictError } from "../../../common/errors/ConflictError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
-import { env } from "../../../config/application";
-import { IBillingSchedule } from "../../billing/models/billing-schedule.model";
-import { BillingScheduleService } from "../../billing/services/billing-schedule.service";
-import { addOneMonthPreservingBillingDay } from "../../plans/services/date.service";
 import { PlanStatus } from "../../plans/models/plan.model";
 import { NotificationEvent } from "../../notifications/models/notification.model";
 import { NotificationService } from "../../notifications/services/notification.service";
@@ -17,7 +14,8 @@ import {
 } from "../models/payment.model";
 import { PaystackService, PaystackTransactionData } from "./paystack.service";
 import { PaymentRepository } from "../repositories/payment.repository";
-
+import { SubscriptionRepository } from "../../subscriptions/repositories/subscription.repository";
+import { SubscriptionStatus } from "../../subscriptions/models/subscription.model";
 
 export class PaymentService {
   private repository = new PaymentRepository();
@@ -52,6 +50,41 @@ export class PaymentService {
         "User email is required for payment initialization",
       );
 
+    const pkg = await this.repository.findPlanPackage(plan.package);
+    if (!pkg?.paystackPlanCode)
+      throw new BadRequestError("Package is not configured for subscriptions");
+    const subscriptions = new SubscriptionRepository();
+    const otherPending = await subscriptions.findOtherPendingForOwnerPlanCode(
+      ownerId,
+      pkg.paystackPlanCode,
+      plan._id,
+    );
+
+    if (otherPending)
+      throw new ConflictError(
+        "Complete the existing checkout for this package before starting another plan checkout",
+      );
+    
+    let subscription = await subscriptions.findByPlan(plan._id);
+
+    if (!subscription)
+      subscription = await subscriptions.create({
+        owner: plan.owner,
+        plan: plan._id,
+        package: plan.package,
+        provider: "paystack",
+        providerPlanCode: pkg.paystackPlanCode,
+        status: SubscriptionStatus.PENDING,
+      });
+
+    else if (subscription.status !== SubscriptionStatus.PENDING)
+      throw new BadRequestError("A subscription already exists for this plan");
+      
+    else if (subscription.providerPlanCode !== pkg.paystackPlanCode) {
+      subscription.providerPlanCode = pkg.paystackPlanCode;
+      await subscription.save();
+    }
+
     // Reuse an existing initial payment when available to avoid creating unnecessary records.
     let payment = await this.repository.findReusableInitial(plan._id, ownerId);
     const newOwnerId = new Types.ObjectId(ownerId);
@@ -60,7 +93,7 @@ export class PaymentService {
       payment = await this.repository.createPayment({
         owner: newOwnerId,
         plan: plan._id,
-        amountMinor: plan.contributionAmountMinor,
+        amount: plan.amount,
         currency: plan.currency,
         reference: this.reference("jh_init"),
         providerReference: undefined,
@@ -73,9 +106,10 @@ export class PaymentService {
     // Initialize checkout with Paystack and associate the transaction with the plan and payment.
     const initialized = await new PaystackService().initializeTransaction({
       email: user.email,
-      amount: payment.amountMinor,
+      amount: payment.amount,
       currency: payment.currency,
       reference: payment.reference,
+      plan: pkg.paystackPlanCode,
       metadata: {
         planId: plan._id.toString(),
         paymentId: payment._id.toString(),
@@ -105,8 +139,6 @@ export class PaymentService {
     const providerData = await new PaystackService().verifyTransaction(
       reference,
     );
-    console.log(providerData);
-    
     return this.applyProviderTransaction(providerData);
   }
 
@@ -126,13 +158,14 @@ export class PaymentService {
 
     // Reject provider responses whose amount or currency differs from the recorded payment.
     if (
-      providerData.amount !== payment.amountMinor ||
+      providerData.amount !== payment.amount ||
       providerData.currency !== payment.currency
     ) {
       throw new BadRequestError("Payment verification mismatch");
     }
 
     const successful = providerData.status === "success";
+    const subscriptions = new SubscriptionRepository();
     const session = await mongoose.startSession();
 
     try {
@@ -148,13 +181,13 @@ export class PaymentService {
         current.status = successful
           ? PaymentStatus.SUCCESSFUL
           : PaymentStatus.FAILED;
-        
+
         current.providerTransactionId = providerData.id?.toString();
 
         current.failureMessage = successful
           ? undefined
           : providerData.gateway_response;
-        
+
         current.processedAt = new Date();
 
         current.metadata = { providerStatus: providerData.status };
@@ -168,46 +201,19 @@ export class PaymentService {
           );
           if (!plan) throw new NotFoundError("Plan not found");
 
-          // Update the plan's payment details and next payment date.
+          // Payment success activates the business plan. Paystack's subscription event supplies its schedule.
           await this.repository.updatePlanAfterPayment(
             plan._id,
-            current.amountMinor,
-            addOneMonthPreservingBillingDay(new Date()),
+            current.amount,
+            undefined,
             session,
           );
 
-          // Store reusable authorization details for future recurring charges.
-          if (
-            providerData.authorization?.authorization_code &&
-            providerData.authorization.reusable
-          ) {
-            await this.repository.upsertAuthorization(
-              {
-                plan: current.plan,
-                authorizationCode:
-                  providerData.authorization.authorization_code,
-              },
-              {
-                owner: current.owner,
-                plan: current.plan,
-                provider: "paystack",
+          const sub = await subscriptions.findByPlan(current.plan);
 
-                authorizationCode:
-                  providerData.authorization.authorization_code,
-                
-                customerCode: providerData.customer?.customer_code,
-                customerEmail: providerData.customer?.email || "",
-                reusable: Boolean(providerData.authorization.reusable),
-                channel: providerData.authorization.channel,
-                cardType: providerData.authorization.card_type,
-                bank: providerData.authorization.bank,
-                last4: providerData.authorization.last4,
-                expMonth: providerData.authorization.exp_month,
-                expYear: providerData.authorization.exp_year,
-                active: true,
-              },
-              session,
-            );
+          if (sub && sub.status === SubscriptionStatus.ACTIVE) {
+            sub.lastPaymentAt = new Date();
+            await sub.save({ session });
           }
         }
       });
@@ -235,14 +241,6 @@ export class PaymentService {
       event,
       `${updated._id}:${event}`,
     );
-
-    // Activate the initial billing schedule after the first payment succeeds.
-    if (successful && updated.purpose === PaymentPurpose.INITIAL) {
-      await new BillingScheduleService().activateForPlan(
-        updated.plan,
-        addOneMonthPreservingBillingDay(new Date()),
-      );
-    }
 
     return updated;
   }
@@ -274,8 +272,133 @@ export class PaymentService {
       return { status: "duplicate" };
 
     try {
-      if (payload.event === "charge.success" && reference) {
-        await this.verifyAndApply(reference);
+      if (payload.event === "subscription.create") {
+
+        const data = payload.data || {};
+
+        const customer = typeof data.customer === "object" ? data.customer : {};
+
+        const providerPlan = typeof data.plan === "object" ? data.plan : {};
+
+        const owner = customer.customer_code
+          ? await this.repository.findOwnerByEmail(customer.email)
+          : null;
+        
+        const candidates =
+          owner && providerPlan.plan_code
+            ? await new SubscriptionRepository().findPendingForOwnerPlanCode(
+                owner._id,
+                providerPlan.plan_code,
+              )
+            : [];
+        
+        if (candidates.length > 1)
+          throw new BadRequestError(
+            "Paystack subscription cannot be matched to a unique pending Journey Home plan",
+          );
+        
+        const pending = candidates[0];
+
+        if (pending && data.subscription_code) {
+
+          const next = data.next_payment_date
+            ? new Date(data.next_payment_date)
+            : undefined;
+          
+          await new SubscriptionRepository().attachProvider({
+            id: pending._id,
+            code: data.subscription_code,
+            customerCode: customer.customer_code,
+            nextPaymentDate: next,
+            startedAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+          });
+
+          if (next)
+            await this.repository.updatePlanNextPaymentDate(pending.plan, next);
+
+        } else event.status = "Ignored";
+
+      } else if (payload.event === "charge.success" && reference) {
+
+        await this.applyChargeSuccess(payload.data);
+        event.status = "Processed";
+      } else if (
+        [
+          "invoice.update",
+          "invoice.create",
+          "invoice.payment_failed",
+          "subscription.not_renew",
+          "subscription.disable",
+        ].includes(payload.event)
+      ) {
+        const data = payload.data || {};
+
+        const code =
+          data.subscription?.subscription_code || data.subscription_code;
+        
+        const local = code
+          ? await new SubscriptionRepository().findByProviderCode(code)
+          : null;
+        if (local) {
+          const nextDate =
+            data.subscription?.next_payment_date || data.next_payment_date;
+          
+          if (nextDate) {
+            local.nextPaymentDate = new Date(nextDate);
+            await this.repository.updatePlanNextPaymentDate(
+              local.plan,
+              local.nextPaymentDate,
+            );
+          }
+
+          if (payload.event === "invoice.payment_failed")
+
+            local.status = SubscriptionStatus.ATTENTION;
+          
+          if (payload.event === "subscription.not_renew")
+
+            local.status = SubscriptionStatus.NON_RENEWING;
+          
+          if (payload.event === "subscription.disable") {
+            local.status =
+              data.status === "complete"
+                ? SubscriptionStatus.COMPLETED
+                : SubscriptionStatus.CANCELLED;
+            if (local.status === SubscriptionStatus.CANCELLED)
+              local.cancelledAt = new Date();
+          }
+
+          await local.save();
+
+          if (
+            payload.event === "invoice.payment_failed" &&
+            data.invoice_code &&
+            !(await this.repository.findByProviderReference(data.invoice_code))
+          ) {
+
+            const plan = await this.repository.findPlanById(local.plan);
+
+            if (plan)
+              await this.repository.createPayment({
+                owner: local.owner,
+                plan: local.plan,
+                amount: Number(
+                  data.amount || plan.amount,
+                ),
+                currency: plan.currency,
+                reference: `paystack_${data.invoice_code}`,
+                providerReference: data.invoice_code,
+                provider: PaymentProvider.PAYSTACK,
+                purpose: PaymentPurpose.RECURRING,
+                status: PaymentStatus.FAILED,
+                failureMessage:
+                  data.description ||
+                  "Paystack subscription invoice payment failed",
+                processedAt: new Date(),
+                metadata: { invoiceCode: data.invoice_code },
+              });
+          }
+        }
         event.status = "Processed";
       } else if (payload.event === "charge.failed" && reference) {
         await this.repository.markProviderFailure(
@@ -298,6 +421,53 @@ export class PaymentService {
     }
   }
 
+  private async applyChargeSuccess(data: any): Promise<void> {
+    const reference = String(data.reference || "");
+    if (!reference) throw new BadRequestError("Provider reference is missing");
+    const exists = await this.repository.findByProviderReference(reference);
+    if (exists) {
+      await this.verifyAndApply(reference);
+      return;
+    }
+    const code = data.subscription?.subscription_code || data.subscription_code;
+    const subscription = code
+      ? await new SubscriptionRepository().findByProviderCode(code)
+      : null;
+    if (!subscription) {
+      // The first charge webhook can arrive before subscription.create; verify and defer reconciliation.
+      throw new BadRequestError(
+        "Paystack subscription is not yet linked to a local plan; webhook will be retried",
+      );
+    }
+    const providerData = await new PaystackService().verifyTransaction(
+      reference,
+    );
+    await this.createAndApplyRecurring(providerData, subscription);
+  }
+
+  private async createAndApplyRecurring(
+    data: PaystackTransactionData,
+    subscription: any,
+  ) {
+    if (!data.reference || data.amount === undefined || !data.currency)
+      throw new BadRequestError("Incomplete Paystack transaction data");
+    const plan = await this.repository.findPlanById(subscription.plan);
+    if (!plan) throw new NotFoundError("Plan not found");
+    await this.repository.createPayment({
+      owner: subscription.owner,
+      plan: subscription.plan,
+      amount: data.amount,
+      currency: data.currency,
+      reference: data.reference,
+      providerReference: data.reference,
+      providerTransactionId: data.id?.toString(),
+      provider: PaymentProvider.PAYSTACK,
+      purpose: PaymentPurpose.RECURRING,
+      status: PaymentStatus.PROCESSING,
+    });
+    await this.applyProviderTransaction(data);
+  }
+
   async listForOwner(ownerId: string): Promise<IPayment[]> {
     return this.repository.listForOwner(ownerId);
   }
@@ -308,74 +478,4 @@ export class PaymentService {
     return payment;
   }
 
-  // Charges the saved reusable authorization for a scheduled recurring payment.
-  async chargeRecurring(schedule: IBillingSchedule): Promise<void> {
-    const plan = await this.repository.findPlanById(schedule.plan);
-
-    // Skip plans that no longer accept payments.
-    if (
-      !plan ||
-      plan.status === PlanStatus.CANCELLED ||
-      plan.status === PlanStatus.COMPLETED
-    )
-      return;
-
-    const authorization = await this.repository.findReusableAuthorization(
-      plan._id,
-    );
-    if (!authorization)
-      throw new BadRequestError(
-        "Reusable payment authorization is not available for this plan",
-      );
-
-    const payment = await this.repository.createPayment({
-      owner: plan.owner,
-      plan: plan._id,
-      amountMinor: plan.contributionAmountMinor,
-      currency: plan.currency,
-      reference: this.reference("jh_rec"),
-      provider: PaymentProvider.PAYSTACK,
-      purpose: PaymentPurpose.RECURRING,
-      status: PaymentStatus.PROCESSING,
-      billingCycle: schedule.billingCycle,
-      authorization: authorization._id,
-    });
-
-    try {
-      // Charge the saved authorization through Paystack and link the result to this payment.
-      const result = await new PaystackService().chargeAuthorization({
-        email: authorization.customerEmail,
-        amount: payment.amountMinor,
-        currency: payment.currency,
-        authorization_code: authorization.authorizationCode,
-        reference: payment.reference,
-        metadata: {
-          planId: plan._id.toString(),
-          paymentId: payment._id.toString(),
-          billingCycle: schedule.billingCycle,
-        },
-      });
-
-      await this.applyProviderTransaction({
-        ...result,
-        reference: result.reference || payment.reference,
-      });
-
-      // Keep the billing schedule in sync with the provider's payment outcome.
-      if (result.status === "success") {
-        await new BillingScheduleService().recordSuccess(schedule, payment._id);
-      } else {
-        await new BillingScheduleService().recordFailure(schedule, payment._id);
-      }
-    } catch (error: any) {
-      await this.repository.updatePayment(payment._id, {
-        $set: {
-          status: PaymentStatus.FAILED,
-          failureMessage: error.message,
-          processedAt: new Date(),
-        },
-      });
-      await new BillingScheduleService().recordFailure(schedule, payment._id);
-    }
-  }
 }
