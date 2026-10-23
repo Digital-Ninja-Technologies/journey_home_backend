@@ -1,6 +1,6 @@
-import { User, IUser, UserRole } from '../models/auth.model';
-import { NotFoundError } from '../../../common/errors/NotFoundError';
-import { PageOptions, escapeRegex } from '../../../common/utils/pagination';
+import { User, IUser, UserRole } from "../models/auth.model";
+import { NotFoundError } from "../../../common/errors/NotFoundError";
+import { PageOptions, escapeRegex } from "../../../common/utils/pagination";
 
 export class UserRepository {
   async findByEmail(email: string): Promise<IUser | null> {
@@ -12,11 +12,21 @@ export class UserRepository {
   }
 
   findEmailVerificationToken(hash: string) {
-    return User.findOne({ emailVerificationTokenHash: hash, emailVerificationExpiresAt: { $gt: new Date() } }).select("+emailVerificationTokenHash +emailVerificationExpiresAt").exec();
+    return User.findOne({
+      emailVerificationTokenHash: hash,
+      emailVerificationExpiresAt: { $gt: new Date() },
+    })
+      .select("+emailVerificationTokenHash +emailVerificationExpiresAt")
+      .exec();
   }
 
   findPasswordResetToken(hash: string) {
-    return User.findOne({ passwordResetTokenHash: hash, passwordResetExpiresAt: { $gt: new Date() } }).select("+passwordResetTokenHash +passwordResetExpiresAt").exec();
+    return User.findOne({
+      passwordResetTokenHash: hash,
+      passwordResetExpiresAt: { $gt: new Date() },
+    })
+      .select("+passwordResetTokenHash +passwordResetExpiresAt")
+      .exec();
   }
 
   async findAdminByEmail(email: string): Promise<IUser | null> {
@@ -62,10 +72,30 @@ export class UserRepository {
     return count > 0;
   }
 
-  async findAllCustomers(options: PageOptions, filters: { search?: string; emailVerified?: boolean }): Promise<[IUser[], number]> {
+  async findAllCustomers(
+    options: PageOptions,
+    filters: { search?: string; emailVerified?: boolean },
+  ): Promise<[IUser[], number]> {
     const query: Record<string, unknown> = { role: UserRole.CUSTOMER };
-    if (filters.emailVerified !== undefined) query.isEmailVerified = filters.emailVerified;
-    if (filters.search) { const search = escapeRegex(filters.search); query.$or = [{ email: { $regex: search, $options: "i" } }, { name: { $regex: search, $options: "i" } }]; }
-    return Promise.all([User.find(query).select("-passwordHash -emailVerificationTokenHash -passwordResetTokenHash").sort({ createdAt: -1 }).skip(options.skip).limit(options.limit).exec(), User.countDocuments(query).exec()]);
+    if (filters.emailVerified !== undefined)
+      query.isEmailVerified = filters.emailVerified;
+    if (filters.search) {
+      const search = escapeRegex(filters.search);
+      query.$or = [
+        { email: { $regex: search, $options: "i" } },
+        { name: { $regex: search, $options: "i" } },
+      ];
+    }
+    return Promise.all([
+      User.find(query)
+        .select(
+          "-passwordHash -emailVerificationTokenHash -passwordResetTokenHash",
+        )
+        .sort({ createdAt: -1 })
+        .skip(options.skip)
+        .limit(options.limit)
+        .exec(),
+      User.countDocuments(query).exec(),
+    ]);
   }
 }

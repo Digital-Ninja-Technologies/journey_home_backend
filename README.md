@@ -72,42 +72,79 @@ Logs in a verified account. Unverified accounts receive `401` until the email ve
 </details>
 
 <details>
-<summary><strong>POST /auth/admin/login — Admin login</strong></summary>
+<summary><strong>POST verify email</strong></summary>
 
 - **Method:** `POST`
-- **URL:** `/api/v1/auth/admin/login`
+- **URL:** `/auth/verify-email`
 - **Auth:** Not required
-
-Logs in only `admin` or `super_admin` users.
 
 **Body:**
 
 ```json
-{
-  "email": "admin@example.com",
-  "password": "admin123"
-}
+{ "token": "..." }
 ```
-
 </details>
 
 <details>
-<summary><strong>Email verification, password reset, and profile</strong></summary>
+<summary><strong>POST Resend email verification email</strong></summary>
 
-- `POST /api/v1/auth/verify-email` with `{ "token": "..." }` verifies the one-time token (24-hour expiry).
-- `POST /api/v1/auth/resend-verification` with `{ "email": "ada@example.com" }` requests a new link. The response does not reveal whether an account exists.
-- `POST /api/v1/auth/forgot-password` with `{ "email": "ada@example.com" }` sends a one-time reset link when the account exists (one-hour expiry); the response is generic.
-- `POST /api/v1/auth/reset-password` with `{ "token": "...", "newPassword": "a-longer-password" }` changes the password and consumes the token.
-- `GET /api/v1/auth/me` returns the authenticated user's profile without password or token fields.
+- **Method:** `POST`
+- **URL:** `/auth/resend-verification`
+- **Auth:** Not required
 
-Tokens are stored only as hashes. Set `FRONTEND_URL` so emailed links open the frontend's `/verify-email` and `/reset-password` pages. Auth endpoints have stricter per-IP limits; the API also has a general per-IP limit.
+**Body:**
+
+```json
+{ "email": "ada@example.com" }
+```
+</details>
+
+<details>
+<summary><strong>POST Request password reset</strong></summary>
+
+- **Method:** `POST`
+- **URL:** `/auth/forgot-password`
+- **Auth:** Not required
+
+**Body:**
+
+```json
+{ "email": "ada@example.com" }
+```
+
+sends a one-time reset link when the account exists (one-hour expiry);
+</details>
+
+<details>
+<summary><strong>POST reset password</strong></summary>
+
+- **Method:** `POST`
+- **URL:** `/auth/reset-password`
+- **Auth:** Not required
+
+**Body:**
+
+```json
+{ "token": "...", "newPassword": "a-longer-password" }
+```
+</details>
+
+<details>
+<summary><strong>GET Get user profile</strong></summary>
+
+- **Method:** `POST`
+- **URL:** `/auth/me`
+- **Auth:** required
+
 </details>
 
 <details>
 <summary><strong>Admin auth endpoints</strong></summary>
 
 - **POST** `/api/v1/auth/admin` — create admin. Auth required: super admin.
+
 - **DELETE** `/api/v1/auth/admin/:id` — delete admin. Auth required: super admin.
+
 - **GET** `/api/v1/auth/admins` — list admins. Auth required: super admin.
 </details>
 
@@ -455,12 +492,7 @@ Paystack collects recurring contributions. The subscription record tracks provid
 - **Auth:** Required
 
 Returns durable notification records for the authenticated user. Notification records use a dedupe key so repeated webhooks or billing jobs do not send repeated emails for the same event.
-
 </details>
-
-The independent contribution reminder job sends email at 7 days and 3 days before the expected payment date reported by Paystack. It deduplicates by subscription, reminder interval, and due date. Failed reminder deliveries are retried daily while that due date is still current; the job sends emails only and never charges or retries a payment.
-
----
 
 ## Service Requests
 
