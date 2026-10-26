@@ -28,6 +28,11 @@ export type SignupValidation = z.infer<typeof SignupValidator>;
 export const EmailTokenValidator = z.object({ token: z.string().min(32) });
 export const EmailAddressValidator = z.object({ email: z.string().email() });
 export const PasswordResetValidator = z.object({ token: z.string().min(32), newPassword: z.string().min(8) });
+export const NotificationPreferencesValidator = z.object({
+  paymentReminders: z.boolean(), deficitAlerts: z.boolean(),
+  serviceRequestUpdates: z.boolean(), productNewsOffers: z.boolean(),
+});
+export const CloseAccountValidator = z.object({ password: z.string().min(1) });
 
 export const ChangePasswordValidator = z.object({
   adminId: z.string().optional(),

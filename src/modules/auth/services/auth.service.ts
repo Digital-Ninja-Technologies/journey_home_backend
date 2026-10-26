@@ -236,7 +236,21 @@ export class AuthService {
       isEmailVerified: user.isEmailVerified,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      notificationPreferences: user.notificationPreferences,
     };
+  }
+
+  async updateNotificationPreferences(userId: string, preferences: IUser["notificationPreferences"]) {
+    const user = await this.userRepo.update(userId, { notificationPreferences: preferences });
+    if (!user) throw new NotFoundError("User not found");
+    return user.notificationPreferences;
+  }
+
+  async closeAccount(userId: string, password: string) {
+    const user = await this.userRepo.findById(userId);
+    if (!user || !(await comparePassword(password, user.passwordHash))) throw new BadRequestError("Password is incorrect");
+    await this.userRepo.deleteById(userId);
+    return { message: "Account deleted successfully" };
   }
 
   async verifyEmail(token: string): Promise<{ message: string }> {

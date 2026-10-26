@@ -78,12 +78,17 @@ export class PlanService {
   }
 
   // Return all plans belonging to a specific owner.
-  async listForOwner(ownerId: string): Promise<IPlan[]> {
-    return this.repository.listForOwner(ownerId);
+  async listForOwner(ownerId: string, options: PageOptions, filters: { name?: string; status?: PlanStatus; from?: Date; to?: Date }): Promise<PaginatedResult<IPlan>> {
+    const [items, total] = await this.repository.listForOwner(ownerId, options, filters);
+    return pageResult(items, total, options);
+  }
+
+  async dashboardOverview(ownerId: string) {
+    return this.repository.dashboard(ownerId);
   }
 
   // Return all plans, typically for an administrative view.
-  async listAll(options: PageOptions, filters: { status?: PlanStatus; ownerId?: string; packageId?: string; search?: string }): Promise<PaginatedResult<IPlan>> {
+  async listAll(options: PageOptions, filters: { status?: PlanStatus; ownerId?: string; packageId?: string; search?: string; ownerIds?: Types.ObjectId[] }): Promise<PaginatedResult<IPlan>> {
     const [items, total] = await this.repository.listAll(options, filters);
     return pageResult(items, total, options);
   }

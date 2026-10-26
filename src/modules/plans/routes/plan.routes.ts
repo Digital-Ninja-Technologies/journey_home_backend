@@ -16,6 +16,7 @@ router.use(authRequired);
 router.post("/", validate(CreatePlanValidator), controller.create);
 
 router.get("/", controller.listForOwner);
+router.get("/dashboard", controller.dashboard);
 
 router.get("/admin", requireAdmin, controller.listAll);
 

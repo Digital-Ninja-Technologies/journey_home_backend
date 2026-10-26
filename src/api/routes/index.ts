@@ -6,6 +6,7 @@ import paymentRoutes from "../../modules/payments/routes/payment.routes";
 import notificationRoutes from "../../modules/notifications/routes/notification.routes";
 import serviceRequestRoutes from "../../modules/service-requests/routes/service-request.routes";
 import subscriptionRoutes from "../../modules/subscriptions/routes/subscription.routes";
+import adminRoutes from "../../modules/admin/admin.routes";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.get("/health", (req, res) => {
 });
 
 router.use("/auth", authRoutes);
+router.use("/admin", adminRoutes);
 router.use("/packages", packageRoutes);
 router.use("/plans", planRoutes);
 router.use("/payments", paymentRoutes);

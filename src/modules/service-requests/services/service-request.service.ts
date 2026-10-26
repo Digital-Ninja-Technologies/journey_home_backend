@@ -17,6 +17,7 @@ import {
 } from "../models/service-request.model";
 import { ServiceRequestRepository } from "../repositories/service-request.repository";
 import { AdminRequestStatusDto } from "../validators/service-request.validator";
+import { AssignPhotographerDto } from "../validators/service-request.validator";
 import { CreateServiceRequestDto, RequestServiceDocumentUploadDto, CompleteServiceDocumentUploadDto, VerifyServiceDocumentDto } from "../validators/service-request.validator";
 import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
 
@@ -82,7 +83,7 @@ export class ServiceRequestService {
     return this.repository.listMine(ownerId);
   }
 
-  async listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date }): Promise<PaginatedResult<IServiceRequest>> {
+  async listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date; search?: string }): Promise<PaginatedResult<IServiceRequest>> {
     const [items, total] = await this.repository.listAll(options, filters);
     return pageResult(items, total, options);
   }
@@ -130,6 +131,7 @@ export class ServiceRequestService {
         ServiceRequestStatus.APPROVED,
         ServiceRequestStatus.REJECTED,
         ServiceRequestStatus.CANCELLED,
+        ServiceRequestStatus.CLOSED,
       ].includes(request.status)
     ) {
       throw new BadRequestError(
@@ -164,6 +166,7 @@ export class ServiceRequestService {
         ServiceRequestStatus.APPROVED,
         ServiceRequestStatus.REJECTED,
         ServiceRequestStatus.CANCELLED,
+        ServiceRequestStatus.CLOSED,
       ].includes(request.status)
     ) {
       throw new BadRequestError(
@@ -414,6 +417,21 @@ export class ServiceRequestService {
       });
     }
     await this.audit.record({ actorId: adminId, action: `service_request.${dto.status.toLowerCase()}`, resourceType: "ServiceRequest", resourceId: request._id.toString(), metadata: dto.reason ? { reason: dto.reason } : undefined });
+    return request;
+  }
+
+  async assignPhotographer(requestId: string, adminId: string, dto: AssignPhotographerDto): Promise<IServiceRequest> {
+    if (!Types.ObjectId.isValid(requestId)) throw new BadRequestError("Invalid service request id");
+    const request = await this.repository.findRequestById(requestId);
+    if (!request) throw new NotFoundError("Service request not found");
+    if (request.status !== ServiceRequestStatus.APPROVED) throw new BadRequestError("Only approved service requests can be closed by photographer assignment");
+    request.photographerName = dto.photographerName;
+    request.photographerAssignedAt = new Date();
+    request.status = ServiceRequestStatus.CLOSED;
+    request.reviewedBy = new Types.ObjectId(adminId);
+    await this.repository.saveRequest(request);
+    await this.audit.record({ actorId: adminId, action: "service_request.photographer_assigned", resourceType: "ServiceRequest", resourceId: request._id.toString(), metadata: { photographerName: dto.photographerName } });
+    await this.notifications.notifyUser({ userId: request.owner.toString(), event: NotificationEvent.SERVICE_PROVIDER_ASSIGNED, dedupeKey: `${request._id}:photographer:${request.photographerAssignedAt.getTime()}`, title: "Photographer assigned", message: `${dto.photographerName} has been assigned to your service request.` });
     return request;
   }
 }

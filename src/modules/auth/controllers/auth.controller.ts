@@ -108,4 +108,14 @@ export class AuthController {
     try { successResponse(res, "Password reset successfully", await this.authService.resetPassword(req.body.token, req.body.newPassword)); }
     catch (error) { next(error); }
   };
+
+  updateNotificationPreferences = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Notification preferences updated successfully", await this.authService.updateNotificationPreferences(req.user!.userId, req.body)); }
+    catch (error) { next(error); }
+  };
+
+  closeAccount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Account deleted successfully", await this.authService.closeAccount(req.user!.userId, req.body.password)); }
+    catch (error) { next(error); }
+  };
 }

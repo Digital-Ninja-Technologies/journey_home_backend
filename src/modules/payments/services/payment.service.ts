@@ -17,7 +17,11 @@ import { PaymentRepository } from "../repositories/payment.repository";
 import { SubscriptionRepository } from "../../subscriptions/repositories/subscription.repository";
 import { SubscriptionStatus } from "../../subscriptions/models/subscription.model";
 import { ISubscription } from "../../subscriptions/models/subscription.model";
-import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
+import {
+  PageOptions,
+  pageResult,
+  PaginatedResult,
+} from "../../../common/utils/pagination";
 
 interface PaystackWebhookPayload {
   event: string;
@@ -85,7 +89,7 @@ export class PaymentService {
       throw new ConflictError(
         "Complete the existing checkout for this package before starting another plan checkout",
       );
-    
+
     let subscription = await subscriptions.findByPlan(plan._id);
 
     if (!subscription)
@@ -97,10 +101,8 @@ export class PaymentService {
         providerPlanCode: pkg.paystackPlanCode,
         status: SubscriptionStatus.PENDING,
       });
-
     else if (subscription.status !== SubscriptionStatus.PENDING)
       throw new BadRequestError("A subscription already exists for this plan");
-      
     else if (subscription.providerPlanCode !== pkg.paystackPlanCode) {
       subscription.providerPlanCode = pkg.paystackPlanCode;
       await subscription.save();
@@ -256,15 +258,19 @@ export class PaymentService {
           ? NotificationEvent.RECURRING_PAYMENT_SUCCESS
           : NotificationEvent.RECURRING_PAYMENT_FAILURE;
 
-    const successfulTitle = updated.purpose === PaymentPurpose.INITIAL
-      ? "Initial contribution confirmed"
-      : "Plan contribution received";
+    const successfulTitle =
+      updated.purpose === PaymentPurpose.INITIAL
+        ? "Initial contribution confirmed"
+        : "Plan contribution received";
     const title = successful
       ? successfulTitle
       : updated.purpose === PaymentPurpose.INITIAL
         ? "Initial contribution needs attention"
         : "Scheduled contribution could not be collected";
-    const amount = new Intl.NumberFormat("en-NG", { style: "currency", currency: updated.currency }).format(updated.amount / 100);
+    const amount = new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: updated.currency,
+    }).format(updated.amount / 100);
     const message = successful
       ? `${amount} was confirmed for your plan. Your contribution history has been updated.`
       : `We could not confirm ${amount} for your plan. Please review the payment status or contact support if you need help.`;
@@ -308,7 +314,6 @@ export class PaymentService {
 
     try {
       if (payload.event === "subscription.create") {
-
         const data = payload.data || {};
 
         const customer = typeof data.customer === "object" ? data.customer : {};
@@ -318,7 +323,7 @@ export class PaymentService {
         const owner = customer.customer_code
           ? await this.repository.findOwnerByEmail(customer.email)
           : null;
-        
+
         const candidates =
           owner && providerPlan.plan_code
             ? await new SubscriptionRepository().findPendingForOwnerPlanCode(
@@ -326,20 +331,19 @@ export class PaymentService {
                 providerPlan.plan_code,
               )
             : [];
-        
+
         if (candidates.length > 1)
           throw new BadRequestError(
             "Paystack subscription cannot be matched to a unique pending Journey Home plan",
           );
-        
+
         const pending = candidates[0];
 
         if (pending && data.subscription_code) {
-
           const next = data.next_payment_date
             ? new Date(data.next_payment_date)
             : undefined;
-          
+
           await new SubscriptionRepository().attachProvider({
             id: pending._id,
             code: data.subscription_code,
@@ -350,11 +354,12 @@ export class PaymentService {
 
           if (next)
             await this.repository.updatePlanNextPaymentDate(pending.plan, next);
-
         } else event.status = "Ignored";
-
-      } else if (payload.event === "charge.success" && reference && payload.data) {
-
+      } else if (
+        payload.event === "charge.success" &&
+        reference &&
+        payload.data
+      ) {
         await this.applyChargeSuccess(payload.data);
         event.status = "Processed";
       } else if (
@@ -370,14 +375,14 @@ export class PaymentService {
 
         const code =
           data.subscription?.subscription_code || data.subscription_code;
-        
+
         const local = code
           ? await new SubscriptionRepository().findByProviderCode(code)
           : null;
         if (local) {
           const nextDate =
             data.subscription?.next_payment_date || data.next_payment_date;
-          
+
           if (nextDate) {
             local.nextPaymentDate = new Date(nextDate);
             await this.repository.updatePlanNextPaymentDate(
@@ -387,13 +392,11 @@ export class PaymentService {
           }
 
           if (payload.event === "invoice.payment_failed")
-
             local.status = SubscriptionStatus.ATTENTION;
-          
-          if (payload.event === "subscription.not_renew")
 
+          if (payload.event === "subscription.not_renew")
             local.status = SubscriptionStatus.NON_RENEWING;
-          
+
           if (payload.event === "subscription.disable") {
             local.status =
               data.status === "complete"
@@ -410,16 +413,13 @@ export class PaymentService {
             data.invoice_code &&
             !(await this.repository.findByProviderReference(data.invoice_code))
           ) {
-
             const plan = await this.repository.findPlanById(local.plan);
 
             if (plan)
               await this.repository.createPayment({
                 owner: local.owner,
                 plan: local.plan,
-                amount: Number(
-                  data.amount || plan.amount,
-                ),
+                amount: Number(data.amount || plan.amount),
                 currency: plan.currency,
                 reference: `paystack_${data.invoice_code}`,
                 providerReference: data.invoice_code,
@@ -450,13 +450,16 @@ export class PaymentService {
     } catch (error: unknown) {
       // Record the error so failed webhook processing can be investigated or retried.
       event.status = "Failed";
-      event.errorMessage = error instanceof Error ? error.message : String(error);
+      event.errorMessage =
+        error instanceof Error ? error.message : String(error);
       await this.repository.savePaystackEvent(event);
       throw error;
     }
   }
 
-  private async applyChargeSuccess(data: NonNullable<PaystackWebhookPayload["data"]>): Promise<void> {
+  private async applyChargeSuccess(
+    data: NonNullable<PaystackWebhookPayload["data"]>,
+  ): Promise<void> {
     const reference = String(data.reference || "");
     if (!reference) throw new BadRequestError("Provider reference is missing");
     const exists = await this.repository.findByProviderReference(reference);
@@ -503,9 +506,40 @@ export class PaymentService {
     await this.applyProviderTransaction(data);
   }
 
-  async listForOwner(ownerId: string, options: PageOptions, filters: { status?: PaymentStatus; purpose?: PaymentPurpose; planId?: string; from?: Date; to?: Date }): Promise<PaginatedResult<IPayment>> {
-    const [items, total] = await this.repository.listForOwner(ownerId, options, filters);
+  async listForOwner(
+    ownerId: string,
+    options: PageOptions,
+    filters: {
+      status?: PaymentStatus;
+      purpose?: PaymentPurpose;
+      planId?: string;
+      from?: Date;
+      to?: Date;
+    },
+  ): Promise<PaginatedResult<IPayment>> {
+    const [items, total] = await this.repository.listForOwner(
+      ownerId,
+      options,
+      filters,
+    );
     return pageResult(items, total, options);
+  }
+
+  async listAll(
+    options: PageOptions,
+    filters: {
+      status?: PaymentStatus;
+      purpose?: PaymentPurpose;
+      from?: Date;
+      to?: Date;
+      search?: string;
+    },
+  ) {
+    const result = await this.repository.listAll(options, filters);
+    return {
+      ...pageResult(result.items as IPayment[], result.total, options),
+      summary: result.summary,
+    };
   }
 
   async getForOwner(paymentId: string, ownerId: string): Promise<IPayment> {
@@ -513,5 +547,4 @@ export class PaymentService {
     if (!payment) throw new NotFoundError("Payment not found");
     return payment;
   }
-
 }

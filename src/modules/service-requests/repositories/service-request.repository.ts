@@ -1,5 +1,6 @@
 import { ClientSession, Types } from "mongoose";
 import { Plan, PlanStatus } from "../../plans/models/plan.model";
+import { User } from "../../auth/models/auth.model";
 import { PageOptions } from "../../../common/utils/pagination";
 import {
   IServiceDocument,
@@ -29,13 +30,18 @@ export class ServiceRequestRepository {
       .exec();
   }
 
-  listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date }) {
+  listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date; search?: string }) {
     const query: Record<string, unknown> = {};
     if (filters.status) query.status = filters.status;
     if (filters.ownerId) query.owner = filters.ownerId;
     if (filters.planId) query.plan = filters.planId;
     if (filters.from || filters.to) query.createdAt = { ...(filters.from ? { $gte: filters.from } : {}), ...(filters.to ? { $lte: filters.to } : {}) };
-    return Promise.all([ServiceRequest.find(query).sort({ createdAt: -1 }).skip(options.skip).limit(options.limit).exec(), ServiceRequest.countDocuments(query).exec()]);
+    if (filters.search) {
+      const escaped = filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const users = await User.find({ $or: [{ name: { $regex: escaped, $options: "i" } }, { email: { $regex: escaped, $options: "i" } }] }).select("_id").lean();
+      query.$or = [{ "coveredPersonSnapshot.fullName": { $regex: escaped, $options: "i" } }, { burialLocation: { $regex: escaped, $options: "i" } }, { owner: { $in: users.map(user => user._id) } }];
+    }
+    return Promise.all([ServiceRequest.find(query).sort({ createdAt: -1 }).skip(options.skip).limit(options.limit).populate("owner", "name email").populate("plan", "packageDetails").exec(), ServiceRequest.countDocuments(query).exec()]);
   }
 
   findRequest(query: Record<string, unknown>) {

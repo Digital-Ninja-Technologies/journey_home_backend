@@ -56,6 +56,7 @@ export class PackageService {
         pkg = await this.repository.createWithSession(
           {
             ...dto,
+            amount: dto.amount === undefined ? undefined : dto.amount * 100,
             currency,
             billingInterval: interval,
             paystackPlanStatus: "pending",
@@ -130,7 +131,7 @@ export class PackageService {
     if (commercialChange) {
       const providerPlan = await new PaystackService().createPlan({
         name: dto.name || current.name,
-        amount: dto.amount ?? current.amount,
+      amount: dto.amount === undefined ? current.amount : dto.amount * 100,
 
         currency: (dto.currency || current.currency).toUpperCase(),
 
@@ -152,6 +153,7 @@ export class PackageService {
     }
     const pkg = await this.repository.update(id, {
       ...dto,
+      amount: dto.amount === undefined ? undefined : dto.amount * 100,
       currency: dto.currency?.toUpperCase(),
       ...providerFields,
       updatedBy: newAdminId,

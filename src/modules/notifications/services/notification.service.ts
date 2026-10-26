@@ -117,6 +117,7 @@ const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
       message:
         "Your requested burial service has been marked complete. Contact support if you need any follow-up.",
     },
+    [NotificationEvent.PRODUCT_NEWS_OFFERS]: { title: "Product news and offers", message: "See the latest Journey Home packages and features." },
   };
 
 export class NotificationService {
@@ -125,6 +126,11 @@ export class NotificationService {
   async sendEmailNotification(content: NotificationContent): Promise<boolean> {
     const user = await this.repository.findUserContact(content.userId);
     if (!user?.email) return false;
+    const preferenceRecord = await this.repository.getUserPreferences(content.userId);
+    const prefs = preferenceRecord?.notificationPreferences;
+    const paymentEvents = [NotificationEvent.UPCOMING_CONTRIBUTION, NotificationEvent.INITIAL_PAYMENT_SUCCESS, NotificationEvent.INITIAL_PAYMENT_FAILURE, NotificationEvent.RECURRING_PAYMENT_SUCCESS, NotificationEvent.RECURRING_PAYMENT_FAILURE, NotificationEvent.PAYMENT_OVERDUE, NotificationEvent.GRACE_PERIOD_STARTED, NotificationEvent.PAYMENT_RECOVERY_SUCCESS];
+    const serviceEvents = Object.values(NotificationEvent).filter(event => event.startsWith("Service"));
+    if (prefs && ((paymentEvents.includes(content.event) && !prefs.paymentReminders) || (content.event === NotificationEvent.PAYMENT_OVERDUE && !prefs.deficitAlerts) || (serviceEvents.includes(content.event) && !prefs.serviceRequestUpdates) || (content.event === NotificationEvent.PRODUCT_NEWS_OFFERS && !prefs.productNewsOffers))) return false;
     const { title, message } = this.resolveContent(content);
     return new EmailService().sendEmail(
       user.email,

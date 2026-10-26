@@ -31,9 +31,9 @@ export class ServiceRequestController {
       const status = queryString(req.query.status);
       if (status && !Object.values(ServiceRequestStatus).includes(status as ServiceRequestStatus)) throw new BadRequestError("Invalid service request status filter");
       const fromRaw = queryString(req.query.from); const toRaw = queryString(req.query.to);
-      const from = fromRaw ? new Date(fromRaw) : undefined; const to = toRaw ? new Date(toRaw) : undefined;
+      const from = fromRaw ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? `${fromRaw}T00:00:00.000Z` : fromRaw) : undefined; const to = toRaw ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(toRaw) ? `${toRaw}T23:59:59.999Z` : toRaw) : undefined;
       if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime())) || (from && to && from > to)) throw new BadRequestError("Invalid service request date range");
-      successResponse(res, "Service requests retrieved successfully", await this.service.listAll(parsePageOptions(req.query), { status: status as ServiceRequestStatus | undefined, ownerId: queryString(req.query.ownerId), planId: queryString(req.query.planId), from, to }));
+      successResponse(res, "Service requests retrieved successfully", await this.service.listAll(parsePageOptions(req.query), { status: status as ServiceRequestStatus | undefined, ownerId: queryString(req.query.ownerId), planId: queryString(req.query.planId), from, to, search: queryString(req.query.search) }));
     } catch (error) {
       next(error);
     }
@@ -99,6 +99,11 @@ export class ServiceRequestController {
 
   updateStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try { successResponse(res, "Service request status updated", await this.service.updateStatus(String(req.params.id), req.user!.userId, req.body)); }
+    catch (error) { next(error); }
+  };
+
+  assignPhotographer = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "Photographer assigned and service request closed", await this.service.assignPhotographer(String(req.params.id), req.user!.userId, req.body)); }
     catch (error) { next(error); }
   };
 }

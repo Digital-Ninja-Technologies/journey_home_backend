@@ -7,6 +7,28 @@
 ## Auth
 
 <details>
+<summary><strong>PATCH /auth/notification-preferences — Update notification preferences</strong></summary>
+
+- **Method:** `PATCH`
+- **URL:** `/api/v1/auth/notification-preferences`
+- **Auth:** Required
+
+All four boolean fields are required: `paymentReminders`, `deficitAlerts`, `serviceRequestUpdates`, and `productNewsOffers`. Defaults enable the first three and disable product news and offers. Preferences control notification email delivery.
+
+**Body:** `{"paymentReminders":true,"deficitAlerts":true,"serviceRequestUpdates":true,"productNewsOffers":false}`
+</details>
+
+<details>
+<summary><strong>DELETE /auth/me — Delete my account</strong></summary>
+
+- **Method:** `DELETE`
+- **URL:** `/api/v1/auth/me`
+- **Auth:** Required
+
+Requires the current password: `{"password":"current-password"}`. Deletes the authenticated user account.
+</details>
+
+<details>
 <summary><strong>POST /auth/signup</strong></summary>
 
 - **Method:** `POST`
@@ -194,7 +216,7 @@ Returns only active packages that customers may select for new plans.
 }
 ```
 
-Money is stored in minor units. For NGN, `1000000` means ₦10,000.
+Package amounts in create/update requests use major currency units. For NGN, `10000` means ₦10,000. Responses expose the stored minor-unit amount (`1000000` for ₦10,000).
 Only packages with a successfully created Paystack monthly plan are listed as available. Provider plan identifiers are kept internal and are not returned by package endpoints.
 
 </details>
@@ -244,7 +266,7 @@ Customers can retrieve active packages. Admins can retrieve inactive packages to
     "Digital gallery",
     "Dedicated coordinator"
   ],
-  "amount": 1000000,
+  "amount": 10000,
   "currency": "NGN",
   "billingInterval": "monthly",
   "isActive": true
@@ -286,6 +308,16 @@ Creates a new Paystack plan using the package's current amount, currency, and in
 ## Plans
 
 <details>
+<summary><strong>GET /plans/dashboard — Get my dashboard summary</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/plans/dashboard`
+- **Auth:** Required
+
+Returns successful contributed amount in minor units, successful payment count for the current calendar month, active plan count, and the next future payment date across the authenticated owner's plans. For NGN, `1000000` means ₦10,000.
+</details>
+
+<details>
 <summary><strong>POST /plans — Create burial plan</strong></summary>
 
 - **Method:** `POST`
@@ -294,6 +326,8 @@ Creates a new Paystack plan using the package's current amount, currency, and in
 - **Role:** Customer, admin, or super admin
 
 Creates a pending plan for the authenticated user. The owner is always derived from the JWT. 
+
+Package amounts are supplied in major currency units (for example, `10000` is ₦10,000); Paystack receives the corresponding minor-unit amount (`1000000`).
 
 **Body:**
 
@@ -324,7 +358,7 @@ Creates a pending plan for the authenticated user. The owner is always derived f
 - **URL:** `/api/v1/plans`
 - **Auth:** Required
 
-Returns only plans owned by the authenticated user.
+Returns only plans owned by the authenticated user. Supports `page`, `limit` (maximum 100), `name` (covered-person name), `status`, `from`, and `to` (creation date range). Response data contains `items` and pagination metadata.
 
 </details>
 
@@ -746,6 +780,196 @@ All administrative request status changes use this endpoint. `reason` is optiona
 </details>
 
 ---
+
+## Admin endpoints
+
+All endpoints in this section require a bearer token and an admin or super-admin role. Monetary values are stored and returned in minor units (`1500000` means ₦15,000).
+
+<details>
+<summary><strong>GET /admin/overview — Operations dashboard overview</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/admin/overview`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `startDate` and `endDate` (`YYYY-MM-DD`) to show successful contributions for a selected period. User new-this-month and monthly commitment figures remain calendar-month values.
+
+Returns aggregate user, plan, contribution, and service-request totals plus up to five most recent service requests needing staff review. Active plans means plans in `Active` status. Total contributed counts successful payments only. Monthly commitments sum active plans' monthly amounts. Average per plan is total contributed divided by active plans (zero when there are no active plans). Pending verification is the count of submitted, under-review, and documents-verified service requests.
+
+### Example
+
+`GET /api/v1/admin/overview`
+
+### Example with date range
+
+`GET /api/v1/admin/overview?startDate=2026-10-01&endDate=2026-10-26`
+</details>
+
+<details>
+<summary><strong>GET /admin/users — Admin users list</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/admin/users`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `search`, `page`, and `limit` (maximum 100)
+
+Lists customer accounts with plan count, total saved, active plan count, and derived status (`Request_Pending`, `Active_Plan`, or `No_Active_Plan`). A request-pending status takes precedence when the customer has a submitted, under-review, or documents-verified service request.
+
+### Example
+
+`GET /api/v1/admin/users?page=1&limit=20`
+
+### Example with search
+
+`GET /api/v1/admin/users?search=Chidi&page=1&limit=20`
+</details>
+
+<details>
+<summary><strong>GET /auth/customers — Admin customer directory</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/auth/customers`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `search`, `emailVerified`, `page`, and `limit` (maximum 100)
+
+Search matches customer name or email. `emailVerified` accepts `true` or `false`. This existing endpoint remains available for email verification workflows; use `/admin/users` for dashboard plan and service-request details.
+
+### Example
+
+`GET /api/v1/auth/customers?search=Chidi&page=1&limit=20`
+
+### Example with verification filter
+
+`GET /api/v1/auth/customers?emailVerified=false&page=1&limit=50`
+</details>
+
+<details>
+<summary><strong>GET /plans/admin — Admin plans list</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/plans/admin`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `search`, `status`, `ownerId`, `packageId`, `page`, and `limit` (maximum 100)
+
+`search` matches covered-person name and plan owner's name or email. Plan records include the owner name and email. `totalContributedAmount` is the amount paid to date and supplies the plans-page Balance column. Valid statuses are `Pending`, `Active`, `Payment_Due`, `Overdue`, `Paused`, `Service_Request`, `Under_Review`, `Approved`, `Service_Scheduled`, `Completed`, `Cancelled`, and `Expired`.
+
+### Example
+
+`GET /api/v1/plans/admin?status=Active&page=1&limit=20`
+
+### Example with search
+
+`GET /api/v1/plans/admin?search=Chidi&page=1&limit=20`
+
+### Combined query example
+
+`GET /api/v1/plans/admin?search=Adebayo&status=Active&packageId=66f...&page=1&limit=20`
+</details>
+
+<details>
+<summary><strong>GET /service-requests/admin — Admin service request queue</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/service-requests/admin`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `search`, `status`, `ownerId`, `planId`, `from`, `to`, `page`, and `limit` (maximum 100)
+
+`search` matches covered-person name, burial location, or owner's name/email. Dates filter request creation time. Statuses include `Submitted`, `Under_Review`, `More_Info_Required`, `Docs_Verified`, `Approved`, `Rejected`, `Cancelled`, and `Closed`.
+
+### Example
+
+`GET /api/v1/service-requests/admin?status=Under_Review&page=1&limit=20`
+
+### Example with date range
+
+`GET /api/v1/service-requests/admin?from=2026-10-01&to=2026-10-26&page=1&limit=50`
+
+### Example with search
+
+`GET /api/v1/service-requests/admin?search=Adebayo&page=1&limit=20`
+
+### Combined query example
+
+`GET /api/v1/service-requests/admin?search=Ikoyi&status=Submitted&from=2026-10-01&to=2026-10-26&page=1&limit=20`
+</details>
+
+<details>
+<summary><strong>PATCH /service-requests/:id/status — Review a service request</strong></summary>
+
+- **Method:** `PATCH`
+- **URL:** `/api/v1/service-requests/:id/status`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+
+Admin approval remains the explicit `Approved` transition. `Closed` is set by photographer assignment and is not a manual status option.
+
+### Example
+
+`PATCH /api/v1/service-requests/66f.../status` with body `{"status":"Approved"}`
+</details>
+
+<details>
+<summary><strong>PATCH /service-requests/:id/assign-photographer — Assign photographer and close request</strong></summary>
+
+- **Method:** `PATCH`
+- **URL:** `/api/v1/service-requests/:id/assign-photographer`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+
+May be used after a request is approved. Records the assigned photographer and assignment time, changes the request status to `Closed`, and notifies the customer.
+
+### Example
+
+`PATCH /api/v1/service-requests/66f.../assign-photographer` with body `{"photographerName":"Adebayo Johnson"}`
+</details>
+
+<details>
+<summary><strong>GET /payments/admin — Admin payment transactions</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/payments/admin`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `search`, `status`, `purpose`, `from`, `to`, `page`, and `limit` (maximum 100)
+
+`search` matches customer name/email, payment reference, or covered-person name. The response includes paginated transactions and status totals for the selected date range. Valid statuses are `Successful`, `Pending`, `Processing`, `Failed`, and `Cancelled`; the business does not issue refunds.
+
+### Example
+
+`GET /api/v1/payments/admin?page=1&limit=20`
+
+### Example with status filter
+
+`GET /api/v1/payments/admin?status=Successful&page=1&limit=50`
+
+### Example with date range
+
+`GET /api/v1/payments/admin?from=2026-10-01&to=2026-10-26&page=1&limit=50`
+
+### Example with search
+
+`GET /api/v1/payments/admin?search=jh_init_82300&page=1&limit=20`
+
+### Combined query example
+
+`GET /api/v1/payments/admin?search=Chidi&status=Successful&purpose=recurring_contribution&from=2026-10-01&to=2026-10-26&page=1&limit=20`
+</details>
+
+### Combined admin dashboard data request
+
+The overview endpoint supplies the dashboard cards and service-request preview. Load it with the sidebar's own paginated list endpoint when the relevant page is opened:
+
+```text
+GET /api/v1/admin/overview?startDate=2026-10-01&endDate=2026-10-26
+GET /api/v1/admin/users?search=Chidi&page=1&limit=20
+GET /api/v1/plans/admin?search=Adebayo&status=Active&page=1&limit=20
+GET /api/v1/service-requests/admin?status=Under_Review&page=1&limit=20
+GET /api/v1/payments/admin?status=Successful&from=2026-10-01&to=2026-10-26&page=1&limit=20
+```
 
 ## Environment Variables
 

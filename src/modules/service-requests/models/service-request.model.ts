@@ -9,6 +9,7 @@ export enum ServiceRequestStatus {
   APPROVED = "Approved",
   REJECTED = "Rejected",
   CANCELLED = "Cancelled",
+  CLOSED = "Closed",
 }
 
 export enum ServiceDocumentType {
@@ -38,6 +39,8 @@ export interface IServiceRequest extends Document {
   moreInfoReason?: string;
   verifiedAt?: Date;
   approvedAt?: Date;
+  photographerName?: string;
+  photographerAssignedAt?: Date;
   rejectedAt?: Date;
   resubmittedAt?: Date;
   reviewedBy?: Types.ObjectId;
@@ -109,6 +112,8 @@ const ServiceRequestSchema = new Schema<IServiceRequest>(
     moreInfoReason: { type: String },
     verifiedAt: { type: Date },
     approvedAt: { type: Date },
+    photographerName: { type: String, trim: true },
+    photographerAssignedAt: { type: Date },
     rejectedAt: { type: Date },
     resubmittedAt: { type: Date },
     reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },

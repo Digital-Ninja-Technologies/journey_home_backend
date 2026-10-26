@@ -9,6 +9,7 @@ import {
   RequestServiceDocumentUploadValidator,
   AdminRequestStatusValidator,
   VerifyServiceDocumentValidator,
+  AssignPhotographerValidator,
 } from "../validators/service-request.validator";
 
 const router = Router();
@@ -27,5 +28,6 @@ router.get("/:id/documents/:documentId/download-url", controller.getDocumentDown
 
 router.patch("/:id/documents/:documentId/verify", requireRole([UserRole.ADMIN]), validate(VerifyServiceDocumentValidator), controller.verifyDocument);
 router.patch("/:id/status", requireRole([UserRole.ADMIN]), validate(AdminRequestStatusValidator), controller.updateStatus);
+router.patch("/:id/assign-photographer", requireRole([UserRole.ADMIN]), validate(AssignPhotographerValidator), controller.assignPhotographer);
 
 export default router;

@@ -11,6 +11,8 @@ import {
   EmailTokenValidator,
   EmailAddressValidator,
   PasswordResetValidator,
+  NotificationPreferencesValidator,
+  CloseAccountValidator,
 } from '../validators/auth.validator';
 
 const router = Router();
@@ -35,6 +37,8 @@ router.post(
 );
 
 router.get("/me", authRequired, authController.getProfile);
+router.patch("/notification-preferences", authRequired, validate(NotificationPreferencesValidator), authController.updateNotificationPreferences);
+router.delete("/me", authRequired, validate(CloseAccountValidator), authController.closeAccount);
 router.post("/verify-email", tokenLimit, validate(EmailTokenValidator), authController.verifyEmail);
 router.post("/resend-verification", tokenLimit, validate(EmailAddressValidator), authController.resendVerification);
 router.post("/forgot-password", resetLimit, validate(EmailAddressValidator), authController.requestPasswordReset);

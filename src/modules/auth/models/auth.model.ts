@@ -20,6 +20,7 @@ export interface IUser extends Document {
   passwordResetExpiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+  notificationPreferences: { paymentReminders: boolean; deficitAlerts: boolean; serviceRequestUpdates: boolean; productNewsOffers: boolean };
 }
 
 const UserSchema = new Schema<IUser>(
@@ -52,6 +53,7 @@ const UserSchema = new Schema<IUser>(
     emailVerificationExpiresAt: { type: Date, select: false },
     passwordResetTokenHash: { type: String, select: false },
     passwordResetExpiresAt: { type: Date, select: false },
+    notificationPreferences: { type: new Schema({ paymentReminders: { type: Boolean, default: true }, deficitAlerts: { type: Boolean, default: true }, serviceRequestUpdates: { type: Boolean, default: true }, productNewsOffers: { type: Boolean, default: false } }, { _id: false }), default: () => ({}) },
   },
   { timestamps: true },
 );

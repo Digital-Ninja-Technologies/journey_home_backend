@@ -5,6 +5,7 @@ import { PlanService } from "../services/plan.service";
 import { BadRequestError } from "@/common/errors/BadRequestError";
 import { parsePageOptions, queryString } from "../../../common/utils/pagination";
 import { PlanStatus } from "../models/plan.model";
+import { User } from "../../auth/models/auth.model";
 
 export class PlanController {
   private service = new PlanService();
@@ -33,7 +34,12 @@ export class PlanController {
         throw new BadRequestError("UserID is undefined");
       }
 
-      const result = await this.service.listForOwner(userId);
+      const status = queryString(req.query.status);
+      if (status && !Object.values(PlanStatus).includes(status as PlanStatus)) throw new BadRequestError("Invalid plan status filter");
+      const fromRaw = queryString(req.query.from), toRaw = queryString(req.query.to);
+      const from = fromRaw ? new Date(fromRaw) : undefined, to = toRaw ? new Date(toRaw) : undefined;
+      if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime())) || (from && to && from > to)) throw new BadRequestError("Invalid plan date range");
+      const result = await this.service.listForOwner(userId, parsePageOptions(req.query), { name: queryString(req.query.name), status: status as PlanStatus | undefined, from, to });
 
       successResponse(res, "Plans retrieved successfully", result);
     } catch (error) {
@@ -41,11 +47,19 @@ export class PlanController {
     }
   };
 
+  dashboard = async (req: Request, res: Response, next: NextFunction) => {
+    try { successResponse(res, "Dashboard summary retrieved successfully", await this.service.dashboardOverview(req.user!.userId)); }
+    catch (error) { next(error); }
+  };
+
   listAll = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const status = queryString(req.query.status);
       if (status && !Object.values(PlanStatus).includes(status as PlanStatus)) throw new BadRequestError("Invalid plan status filter");
-      const result = await this.service.listAll(parsePageOptions(req.query), { status: status as PlanStatus | undefined, ownerId: queryString(req.query.ownerId), packageId: queryString(req.query.packageId), search: queryString(req.query.search) });
+      const search = queryString(req.query.search);
+      const escaped = search?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const ownerIds = escaped ? (await User.find({ $or: [{ name: { $regex: escaped, $options: "i" } }, { email: { $regex: escaped, $options: "i" } }] }).select("_id").lean()).map(user => user._id) : undefined;
+      const result = await this.service.listAll(parsePageOptions(req.query), { status: status as PlanStatus | undefined, ownerId: queryString(req.query.ownerId), packageId: queryString(req.query.packageId), search, ownerIds });
       successResponse(
         res,
         "Plans retrieved successfully",

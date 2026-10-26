@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from "axios";
 import crypto from "crypto";
 import { env } from "../../../config/application";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
+import { AxiosError } from "axios";
 
 export interface PaystackTransactionData {
   id?: number;
@@ -48,6 +49,18 @@ export class PaystackService {
     });
   }
 
+  private async request<T>(operation: string, call: () => Promise<{ data: { data: T; message?: string } }>): Promise<T> {
+    try { return (await call()).data.data; }
+    catch (error) {
+      const ax = error as AxiosError<{ message?: string; errors?: Record<string, string[]> }>;
+      const providerMessage = ax.response?.data?.message || Object.values(ax.response?.data?.errors || {}).flat()[0];
+      if (ax.response) throw new BadRequestError(providerMessage ? `Paystack ${operation} failed: ${providerMessage}` : `Paystack ${operation} failed (HTTP ${ax.response.status}). Please check the payment details and try again.`);
+      if (ax.code === "ECONNABORTED" || ax.code === "ETIMEDOUT") throw new BadRequestError(`Paystack ${operation} timed out. Please try again.`);
+      if (ax.isAxiosError) throw new BadRequestError(`Could not reach Paystack to ${operation}. Please try again shortly.`);
+      throw error;
+    }
+  }
+
   verifySignature(
     rawBody: Buffer | undefined,
     signature: string | string[] | undefined,
@@ -79,8 +92,7 @@ export class PaystackService {
     access_code: string;
     reference: string;
   }> {
-    const { data } = await this.client.post("/transaction/initialize", payload);
-    return data.data;
+    return this.request("initialize checkout", () => this.client.post("/transaction/initialize", payload));
   }
 
   async createPlan(payload: {
@@ -90,21 +102,14 @@ export class PaystackService {
     interval: string;
     description?: string;
   }): Promise<PaystackPlanData> {
-    const { data } = await this.client.post("/plan", payload);
-    return data.data;
+    return this.request("create a subscription plan", () => this.client.post("/plan", payload));
   }
 
   async fetchSubscription(code: string): Promise<PaystackSubscriptionData> {
-    const { data } = await this.client.get(
-      `/subscription/${encodeURIComponent(code)}`,
-    );
-    return data.data;
+    return this.request("retrieve subscription", () => this.client.get(`/subscription/${encodeURIComponent(code)}`));
   }
 
   async verifyTransaction(reference: string): Promise<PaystackTransactionData> {
-    const { data } = await this.client.get(
-      `/transaction/verify/${encodeURIComponent(reference)}`,
-    );
-    return data.data;
+    return this.request("verify transaction", () => this.client.get(`/transaction/verify/${encodeURIComponent(reference)}`));
   }
 }

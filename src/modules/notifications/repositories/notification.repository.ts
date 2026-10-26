@@ -15,6 +15,10 @@ export interface NotificationFilters {
 }
 
 export class NotificationRepository {
+  async getUserPreferences(userId: string) {
+    const { User } = await import("../../auth/models/auth.model");
+    return User.findById(userId).select("notificationPreferences").lean();
+  }
   findUserContact(userId: string) {
     return User.findById(userId).select("email name").lean();
   }

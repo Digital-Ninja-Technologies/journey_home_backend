@@ -41,3 +41,6 @@ export const AdminRequestStatusValidator = z.object({
   reason: z.string().trim().min(3).optional(),
 });
 export type AdminRequestStatusDto = z.infer<typeof AdminRequestStatusValidator>;
+
+export const AssignPhotographerValidator = z.object({ photographerName: z.string().trim().min(2).max(120) });
+export type AssignPhotographerDto = z.infer<typeof AssignPhotographerValidator>;

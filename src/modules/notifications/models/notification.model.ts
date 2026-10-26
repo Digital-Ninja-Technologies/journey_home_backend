@@ -19,6 +19,7 @@ export enum NotificationEvent {
   SERVICE_PROVIDER_ASSIGNED = "ServiceProviderAssigned",
   SERVICE_SCHEDULED = "ServiceScheduled",
   SERVICE_COMPLETED = "ServiceCompleted",
+  PRODUCT_NEWS_OFFERS = "ProductNewsOffers",
 }
 
 export enum NotificationChannel {
