@@ -256,12 +256,26 @@ export class PaymentService {
           ? NotificationEvent.RECURRING_PAYMENT_SUCCESS
           : NotificationEvent.RECURRING_PAYMENT_FAILURE;
 
-    await new NotificationService().record(
-      updated.owner.toString(),
-      updated.plan.toString(),
+    const successfulTitle = updated.purpose === PaymentPurpose.INITIAL
+      ? "Initial contribution confirmed"
+      : "Plan contribution received";
+    const title = successful
+      ? successfulTitle
+      : updated.purpose === PaymentPurpose.INITIAL
+        ? "Initial contribution needs attention"
+        : "Scheduled contribution could not be collected";
+    const amount = new Intl.NumberFormat("en-NG", { style: "currency", currency: updated.currency }).format(updated.amount / 100);
+    const message = successful
+      ? `${amount} was confirmed for your plan. Your contribution history has been updated.`
+      : `We could not confirm ${amount} for your plan. Please review the payment status or contact support if you need help.`;
+
+    await new NotificationService().notifyUser({
+      userId: updated.owner.toString(),
       event,
-      `${updated._id}:${event}`,
-    );
+      dedupeKey: `${updated._id}:${event}`,
+      title,
+      message,
+    });
 
     return updated;
   }

@@ -6,5 +6,7 @@ const router = Router();
 const controller = new NotificationController();
 
 router.get("/", authRequired, controller.listMine);
+router.patch("/:id/read", authRequired, controller.markRead);
+router.delete("/:id", authRequired, controller.deleteMine);
 
 export default router;

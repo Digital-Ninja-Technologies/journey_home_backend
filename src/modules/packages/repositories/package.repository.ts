@@ -6,7 +6,7 @@ export class PackageRepository {
   listActive() {
     return Package.find({
       isActive: true,
-      paystackPlanCode: { $exists: true, $ne: null }, paystackPlanStatus: "ready",
+      paystackPlanCode: { $exists: true, $ne: null },
     })
       .sort({ createdAt: -1 })
       .exec();

@@ -491,7 +491,29 @@ Paystack collects recurring contributions. The subscription record tracks provid
 - **URL:** `/api/v1/notifications`
 - **Auth:** Required
 
-Returns durable notification records for the authenticated user. Notification records use a dedupe key so repeated webhooks or billing jobs do not send repeated emails for the same event.
+Returns the authenticated user's in-app notifications, newest first. Supports `page`, `limit` (maximum 100), `title` (case-insensitive contains match), `isRead=true|false`, `from`, and `to` (ISO date-times). `counts.totalNotifications` and `counts.totalUnreadNotifications` are the user's overall counts; pagination `total` is the number matching the filters.
+
+**Example:** `GET /api/v1/notifications?page=1&limit=20&isRead=false&title=payment&from=2026-10-01T00:00:00.000Z`
+</details>
+
+<details>
+<summary><strong>PATCH /notifications/:id/read — Mark notification as read</strong></summary>
+
+- **Method:** `PATCH`
+- **URL:** `/api/v1/notifications/:id/read`
+- **Auth:** Required
+
+Marks one notification owned by the authenticated user as read. Other users' notifications are not accessible.
+</details>
+
+<details>
+<summary><strong>DELETE /notifications/:id — Delete notification</strong></summary>
+
+- **Method:** `DELETE`
+- **URL:** `/api/v1/notifications/:id`
+- **Auth:** Required
+
+Deletes one notification owned by the authenticated user. Other users' notifications are not accessible.
 </details>
 
 ## Service Requests

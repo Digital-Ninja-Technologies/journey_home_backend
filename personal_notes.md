@@ -1,23 +1,43 @@
-get user profile
-add rate limits
-email verification
+1. create a types folder in every module then create a {module}/types.ts file under it, move every types and interface definitions in that module into the file, exprt it and import where it was used
 
-reset password 
+2. check through the modules, everywhere an enum is found, create an enums folder and curresponding file then move the enum there, export and import where needed
 
-add pagination to get all customers
+3. handle paystack error well so user get a meaningful error message instead of something generic
 
-add pagination and filter to listAll in packages
+4. add next payment date to plan model and update it appropriately
 
-define explicit types anywhere there is any
+5. implement user notification setting
+Notification preferences
+Payment reminders
+Get a reminder a few days before a payment is due.
 
-pagination and filter for listAll in plan.service
+Deficit alerts
+Get notified when a payment is missed and recorded as a deficit.
 
-add pagination and filtering to listForOwner in PaymentService
+Service request updates
+Updates on assignment and coordination for a requested service.
 
-only set nextPayment date when the payment for a plan has been confirmed
+Product news & offers
+Occasional updates about new packages or features.
 
-add pagination and filtering to listAll in ServiceRequestService
 
-unify service request status updates under one endpoint in ServiceRequestService, make fields unique to approve, reject and request more info optional so that they can be passed to the body for each status update, also write the documetation with difference instance examples of eachrequest
+6.implement close account "delete account"
 
-add ceating of packages in a transaction so that if the database did not save,paystack will not succeed either, to avoid a plan existing on paystack and not in our database
+7. add total plan to listForOwner, also add pagination and filter to it, filter by name of the covered person, date created and status
+
+8.this is for the dashboard, create an endpoint that captures the following accross all plans that a user has
+Total contributed
+₦0
+1 payment since Oct 2026
+
+Active plans
+0
+No active plans yet
+
+Next payment
+—
+Nothing due
+
+9. make the amount for creating a plan accept 10000 as 10000 naira, then when calling paystack with the ampunt, multiply by 100 according to pystack requirements
+
+add documentations of new endpoints to the readme following the existing format

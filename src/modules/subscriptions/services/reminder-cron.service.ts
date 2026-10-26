@@ -1,75 +1,61 @@
 import cron from "node-cron";
-import { logger } from "../../../common/logger/logger";
-import { EmailService } from "../../../common/services/email.service";
-import { Notification, NotificationEvent, NotificationStatus } from "../../notifications/models/notification.model";
-import { SubscriptionRepository } from "../repositories/subscription.repository";
-import { env } from "../../../config/application";
 import { Types } from "mongoose";
+import { env } from "../../../config/application";
+import { logger } from "../../../common/logger/logger";
+import { NotificationEvent } from "../../notifications/models/notification.model";
+import { NotificationService } from "../../notifications/services/notification.service";
+import { contributionReminderTemplate } from "../../auth/templates/contribution-reminder.template";
 import { ISubscription } from "../models/subscription.model";
-import { INotification } from "../../notifications/models/notification.model";
+import { SubscriptionRepository } from "../repositories/subscription.repository";
 
 interface ReminderOwner { _id: Types.ObjectId; email: string; name?: string; }
-interface ReminderPlan { _id: Types.ObjectId; nextPaymentDate?: Date; packageDetails?: { currency: string; amount: number; }; }
+interface ReminderPlan { _id: Types.ObjectId; packageDetails?: { currency: string; amount: number; }; }
 type PopulatedSubscription = Omit<ISubscription, "owner" | "plan"> & { owner: ReminderOwner; plan: ReminderPlan };
-type ReminderNotification = Pick<INotification, "dedupeKey" | "status" | "save"> & { owner: ReminderOwner; plan: ReminderPlan };
 
 let started = false;
-export function startContributionReminderCron() {
+export function startContributionReminderCron(): void {
   if (started || !env.CONTRIBUTION_REMINDERS_ENABLED) return;
   started = true;
   cron.schedule("0 9 * * *", async () => {
-    try { await sendReminders(7); await sendReminders(3); await retryFailedReminders(); }
-    catch (error) { logger.error({ err: error }, "Contribution reminder run failed"); }
+    try {
+      await sendReminders(7);
+      await sendReminders(3);
+    } catch (error) {
+      logger.error({ err: error }, "Contribution reminder run failed");
+    }
   }, { timezone: "Africa/Lagos" });
   logger.info("Paystack subscription contribution reminders enabled");
 }
 
-async function sendReminders(days: 3 | 7) {
-  const today = lagosDateKey(new Date());
-  const targetKey = addDateKeyDays(today, days);
+async function sendReminders(days: 3 | 7): Promise<void> {
+  const targetKey = addDateKeyDays(lagosDateKey(new Date()), days);
   const target = new Date(`${targetKey}T00:00:00+01:00`);
   const end = new Date(target.getTime() + 86400000);
-  const rawSubscriptions = await new SubscriptionRepository().listRemindersBetween(target, end);
-  for (const rawSubscription of rawSubscriptions) {
+  const subscriptions = await new SubscriptionRepository().listRemindersBetween(target, end);
+  const notifications = new NotificationService();
+
+  for (const rawSubscription of subscriptions) {
     const subscription = rawSubscription as unknown as PopulatedSubscription;
-    const owner = subscription.owner; const plan = subscription.plan;
+    const owner = subscription.owner;
+    const plan = subscription.plan;
     if (!owner?.email || !subscription.nextPaymentDate) continue;
+
+    const dueDate = subscription.nextPaymentDate.toLocaleDateString("en-NG", { timeZone: "Africa/Lagos", dateStyle: "long" });
+    const currency = plan.packageDetails?.currency || "NGN";
+    const amountMinor = plan.packageDetails?.amount || 0;
+    const amount = new Intl.NumberFormat("en-NG", { style: "currency", currency }).format(amountMinor / 100);
     const dateKey = lagosDateKey(subscription.nextPaymentDate);
     const dedupeKey = `contribution-reminder:${subscription._id}:${days}:${dateKey}`;
-    const record = await Notification.findOneAndUpdate({ dedupeKey }, { $setOnInsert: { owner: owner._id, plan: plan._id, event: NotificationEvent.UPCOMING_CONTRIBUTION, dedupeKey, status: NotificationStatus.PENDING, channel: "email", subject: `${days}-day contribution reminder` } }, { upsert: true, new: true }).exec();
-    if (record.status === NotificationStatus.SENT) continue;
-    const claimed = await claimReminder(dedupeKey);
-    if (!claimed) continue;
-    const sent = await new EmailService().sendEmail(owner.email, `Journey Home contribution reminder`, `<p>Hello ${owner.name || "there"},</p><p>Your contribution of ${plan.packageDetails?.currency || ""} ${plan.packageDetails?.amount || 0} is expected on ${subscription.nextPaymentDate.toLocaleDateString("en-NG")}.</p><p>This is a reminder only. Your subscription collection is handled securely by Paystack.</p>`);
-    claimed.status = sent ? NotificationStatus.SENT : NotificationStatus.FAILED; await claimed.save();
-  }
-}
 
-async function retryFailedReminders() {
-  const stale = new Date(Date.now() - 30 * 60 * 1000);
-  const records = await Notification.find({ event: NotificationEvent.UPCOMING_CONTRIBUTION, status: NotificationStatus.FAILED, updatedAt: { $lte: stale }, dedupeKey: /^contribution-reminder:/ })
-    .populate("owner", "email name").populate("plan", "nextPaymentDate packageDetails").exec();
-  const nowKey = lagosDateKey(new Date());
-  for (const rawRecord of records) {
-    const record = rawRecord as unknown as ReminderNotification;
-    const owner = record.owner; const plan = record.plan;
-    if (!owner?.email || !plan?.nextPaymentDate || lagosDateKey(plan.nextPaymentDate) < nowKey) continue;
-    const match = String(record.dedupeKey).match(/:(3|7):(\d{4}-\d{2}-\d{2})$/);
-    if (!match || match[2] !== lagosDateKey(plan.nextPaymentDate)) continue;
-    const claimed = await claimReminder(record.dedupeKey);
-    if (!claimed) continue;
-    const days = match[1];
-    const sent = await new EmailService().sendEmail(owner.email, "Journey Home contribution reminder", `<p>Hello ${owner.name || "there"},</p><p>Your contribution is expected on ${new Date(plan.nextPaymentDate).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}. This is a ${days}-day reminder. Paystack handles subscription collection; this email does not initiate or retry a payment.</p>`);
-    claimed.status = sent ? NotificationStatus.SENT : NotificationStatus.FAILED; await claimed.save();
+    await notifications.notifyUser({
+      userId: subscription.owner._id.toString(),
+      event: NotificationEvent.UPCOMING_CONTRIBUTION,
+      dedupeKey,
+      title: `${days}-day reminder: upcoming plan contribution`,
+      message: `Your ${amount} plan contribution is expected on ${dueDate}. Paystack handles the scheduled collection; this notification is a reminder only.`,
+      emailHtml: contributionReminderTemplate({ name: owner.name || "there", amount, dueDate, days }),
+    });
   }
-}
-
-async function claimReminder(dedupeKey: string) {
-  const stale = new Date(Date.now() - 5 * 60 * 1000);
-  return Notification.findOneAndUpdate({ dedupeKey, $or: [
-    { status: { $in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } },
-    { status: NotificationStatus.PROCESSING, updatedAt: { $lte: stale } },
-  ] }, { $set: { status: NotificationStatus.PROCESSING } }, { new: true }).exec();
 }
 
 function lagosDateKey(date: Date): string {
@@ -77,7 +63,9 @@ function lagosDateKey(date: Date): string {
   const value = (type: string) => parts.find((part) => part.type === type)?.value || "";
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
+
 function addDateKeyDays(dateKey: string, days: number): string {
-  const date = new Date(`${dateKey}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + days);
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }

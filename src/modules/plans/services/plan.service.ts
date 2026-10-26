@@ -7,6 +7,8 @@ import { PlanRepository } from "../repositories/plan.repository";
 import { PlanStateService } from "./plan-state.service";
 import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
 import { CreatePlanDto } from "../validators/plan.validator";
+import { NotificationEvent } from "../../notifications/models/notification.model";
+import { NotificationService } from "../../notifications/services/notification.service";
 
 export class PlanService {
   private packages = new PackageService();
@@ -61,6 +63,13 @@ export class PlanService {
 
       });
 
+      await new NotificationService().notifyUser({
+        userId: ownerId,
+        event: NotificationEvent.PLAN_CREATED,
+        dedupeKey: `${plan._id}:created`,
+        title: "Burial plan created",
+        message: `Your ${packageDetails.name} plan for ${dto.coveredPerson.fullName} has been created. Complete the initial contribution to activate coverage.`,
+      });
       return plan;
     } finally {
       // release the database session

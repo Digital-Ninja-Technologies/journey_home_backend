@@ -4,7 +4,11 @@ import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { IJourneyPackage, IPackageSnapshot } from "../models/package.model";
 import { PackageRepository } from "../repositories/package.repository";
 import { PaystackService } from "../../payments/services/paystack.service";
-import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
+import {
+  PageOptions,
+  pageResult,
+  PaginatedResult,
+} from "../../../common/utils/pagination";
 
 export class PackageService {
   private repository = new PackageRepository();
@@ -14,7 +18,10 @@ export class PackageService {
   }
 
   // Returns all records in newest-first order.
-  async listAll(options: PageOptions, filters: { isActive?: boolean; search?: string }): Promise<PaginatedResult<IJourneyPackage>> {
+  async listAll(
+    options: PageOptions,
+    filters: { isActive?: boolean; search?: string },
+  ): Promise<PaginatedResult<IJourneyPackage>> {
     const [items, total] = await this.repository.listAll(options, filters);
     return pageResult(items, total, options);
   }
@@ -46,18 +53,47 @@ export class PackageService {
     let pkg!: IJourneyPackage;
     try {
       await session.withTransaction(async () => {
-        pkg = await this.repository.createWithSession({ ...dto, currency, billingInterval: interval, paystackPlanStatus: "pending", createdBy: newAdminId, updatedBy: newAdminId }, session);
+        pkg = await this.repository.createWithSession(
+          {
+            ...dto,
+            currency,
+            billingInterval: interval,
+            paystackPlanStatus: "pending",
+            createdBy: newAdminId,
+            updatedBy: newAdminId,
+          },
+          session,
+        );
       });
-    } finally { await session.endSession(); }
+    } finally {
+      await session.endSession();
+    }
 
     // Persist the package before the external call so Paystack cannot succeed without a local record.
     try {
-      const providerPlan = await new PaystackService().createPlan({ name: pkg.name, amount: pkg.amount, currency: pkg.currency, interval: pkg.billingInterval, description: pkg.description });
-      const updated = await this.repository.update(pkg._id.toString(), { paystackPlanCode: providerPlan.plan_code, paystackPlanId: providerPlan.id, paystackPlanAmount: providerPlan.amount, paystackPlanCurrency: providerPlan.currency, paystackPlanInterval: providerPlan.interval, paystackPlanSyncedAt: new Date(), paystackPlanStatus: "ready" });
-      if (!updated) throw new Error("Package provider details could not be persisted");
+      const providerPlan = await new PaystackService().createPlan({
+        name: pkg.name,
+        amount: pkg.amount,
+        currency: pkg.currency,
+        interval: pkg.billingInterval,
+        description: pkg.description,
+      });
+      const updated = await this.repository.update(pkg._id.toString(), {
+        paystackPlanCode: providerPlan.plan_code,
+        paystackPlanId: providerPlan.id,
+        paystackPlanAmount: providerPlan.amount,
+        paystackPlanCurrency: providerPlan.currency,
+        paystackPlanInterval: providerPlan.interval,
+        paystackPlanSyncedAt: new Date(),
+        paystackPlanStatus: "ready",
+      });
+      if (!updated)
+        throw new Error("Package provider details could not be persisted");
       return updated;
     } catch (error) {
-      await this.repository.update(pkg._id.toString(), { paystackPlanStatus: "failed" });
+      await this.repository.update(pkg._id.toString(), {
+        paystackPlanStatus: "failed",
+      });
       throw error;
     }
   }
@@ -67,10 +103,9 @@ export class PackageService {
     dto: Partial<IJourneyPackage>,
     adminId: string,
   ): Promise<IJourneyPackage> {
-
     if (!Types.ObjectId.isValid(id))
       throw new BadRequestError("Invalid package id");
-    
+
     const blocked = ["_id", "createdBy", "createdAt", "updatedAt"];
 
     if (Object.keys(dto).some((key) => blocked.includes(key))) {
@@ -84,23 +119,19 @@ export class PackageService {
     if (!current) throw new NotFoundError("Package not found");
 
     const commercialChange =
-      (dto.amount !== undefined &&
-        dto.amount !== current.amount) ||
-      
+      (dto.amount !== undefined && dto.amount !== current.amount) ||
       (dto.currency !== undefined &&
         dto.currency.toUpperCase() !== current.currency) ||
-      
       (dto.billingInterval !== undefined &&
         dto.billingInterval !== current.billingInterval);
-    
+
     let providerFields: Partial<IJourneyPackage> = {};
 
     if (commercialChange) {
       const providerPlan = await new PaystackService().createPlan({
         name: dto.name || current.name,
-        amount:
-          dto.amount ?? current.amount,
-        
+        amount: dto.amount ?? current.amount,
+
         currency: (dto.currency || current.currency).toUpperCase(),
 
         interval: dto.billingInterval || current.billingInterval,

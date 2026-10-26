@@ -31,6 +31,7 @@ export interface ICoveredPerson {
   relationship: string;
   address: string;
   phoneNumber?: string;
+  state?: string
 }
 
 export interface IPlan extends Document {
@@ -86,6 +87,8 @@ const CoveredPersonSchema = new Schema<ICoveredPerson>(
     address: { type: String, required: true, trim: true },
 
     phoneNumber: { type: String, trim: true },
+
+    state: {type: String, trim: true, required: false}
   },
   { _id: false },
 );

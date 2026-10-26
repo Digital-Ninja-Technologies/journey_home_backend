@@ -67,12 +67,13 @@ export class ServiceRequestService {
       metadata: { planId: plan._id.toString() },
     });
 
-    await this.notifications.record(
-      ownerId,
-      plan._id.toString(),
-      NotificationEvent.SERVICE_REQUEST_RECEIVED,
-      `${request._id}:received`,
-    );
+    await this.notifications.notifyUser({
+      userId: ownerId,
+      event: NotificationEvent.SERVICE_REQUEST_RECEIVED,
+      dedupeKey: `${request._id}:received`,
+      title: "Burial service request received",
+      message: `We received your burial service request for ${request.coveredPersonSnapshot.fullName}. Our team will review your request and uploaded documents.`,
+    });
 
     return request;
   }
@@ -321,12 +322,15 @@ export class ServiceRequestService {
 
       await this.repository.saveRequest(request);
 
-      await this.notifications.record(
-        request.owner.toString(),
-        request.plan.toString(),
-        NotificationEvent.SERVICE_DOCUMENTS_REJECTED,
-        `${document._id}:requires_resubmission`,
-      );
+      await this.notifications.notifyUser({
+        userId: request.owner.toString(),
+        event: NotificationEvent.SERVICE_DOCUMENTS_REJECTED,
+        dedupeKey: `${document._id}:requires_resubmission`,
+        title: "A service request document needs an update",
+        message: dto.reason
+          ? `A document for your burial service request needs to be replaced. Review this note from our team: ${dto.reason}`
+          : "A document for your burial service request needs to be replaced. Please review your request and upload a replacement.",
+      });
     }
 
     await this.audit.record({
@@ -377,7 +381,38 @@ export class ServiceRequestService {
       [ServiceRequestStatus.MORE_INFO_REQUIRED]: NotificationEvent.SERVICE_MORE_INFO_REQUIRED,
     };
     const notification = notificationEvents[dto.status];
-    if (notification) await this.notifications.record(request.owner.toString(), request.plan.toString(), notification, `${request._id}:${dto.status}`);
+    if (notification) {
+      const descriptions: Partial<Record<ServiceRequestStatus, { title: string; message: string }>> = {
+        [ServiceRequestStatus.DOCS_VERIFIED]: {
+          title: "Service request documents approved",
+          message: "Our team approved the documents for your burial service request. The request can now proceed to the next review step.",
+        },
+        [ServiceRequestStatus.APPROVED]: {
+          title: "Burial service request approved",
+          message: "Your burial service request has been approved. Our team will contact you with the next steps.",
+        },
+        [ServiceRequestStatus.REJECTED]: {
+          title: "Burial service request declined",
+          message: dto.reason
+            ? `Our team declined your burial service request. Reason: ${dto.reason}`
+            : "Our team declined your burial service request. Contact support if you need more information.",
+        },
+        [ServiceRequestStatus.MORE_INFO_REQUIRED]: {
+          title: "More information needed for your service request",
+          message: dto.reason
+            ? `Please provide more information for your burial service request: ${dto.reason}`
+            : "Our team needs more information before continuing with your burial service request. Review your request for details.",
+        },
+      };
+      const copy = descriptions[dto.status];
+      await this.notifications.notifyUser({
+        userId: request.owner.toString(),
+        event: notification,
+        dedupeKey: `${request._id}:${dto.status}`,
+        title: copy?.title,
+        message: copy?.message,
+      });
+    }
     await this.audit.record({ actorId: adminId, action: `service_request.${dto.status.toLowerCase()}`, resourceType: "ServiceRequest", resourceId: request._id.toString(), metadata: dto.reason ? { reason: dto.reason } : undefined });
     return request;
   }

@@ -17,9 +17,11 @@ import { comparePassword, hashPassword } from "../../../common/utils/password";
 import { generateAccessToken } from "../../../common/utils/jwt";
 import { IUser, UserRole } from "../models/auth.model";
 import { createHash, randomBytes } from "crypto";
-import { EmailService } from "../../../common/services/email.service";
 import { env } from "../../../config/application";
 import { SignupResponseDto } from "../dto/auth.dto";
+import { emailVerificationTemplate } from "../templates/email-verification.template";
+import { passwordResetTemplate } from "../templates/password-reset.template";
+import { EmailService } from "../../../common/services/email.service";
 import {
   PageOptions,
   pageResult,
@@ -261,16 +263,21 @@ export class AuthService {
 
   async requestPasswordReset(email: string): Promise<{ message: string }> {
     const user = await this.userRepo.findByEmail(email);
+
     if (user) {
       const token = randomBytes(32).toString("hex");
+
       user.passwordResetTokenHash = this.hashToken(token);
+
       user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
       await user.save();
+
       const url = `${env.FRONTEND_URL.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+
       await new EmailService().sendEmail(
         user.email,
         "Reset your Journey Home password",
-        `<p>Hello ${user.name},</p><p><a href="${url}">Reset your password</a>. This link expires in one hour.</p>`,
+        passwordResetTemplate(user.name, url),
       );
     }
     return {
@@ -302,15 +309,19 @@ export class AuthService {
   private async sendEmailVerification(user: IUser): Promise<void> {
     const token = randomBytes(32).toString("hex");
     user.emailVerificationTokenHash = this.hashToken(token);
+
     user.emailVerificationExpiresAt = new Date(
       Date.now() + 24 * 60 * 60 * 1000,
     );
+
     await user.save();
     const url = `${env.FRONTEND_URL.replace(/\/$/, "")}/verify-email?token=${encodeURIComponent(token)}`;
+
+
     await new EmailService().sendEmail(
       user.email,
       "Verify your Journey Home email",
-      `<p>Hello ${user.name},</p><p><a href="${url}">Verify your email address</a>. This link expires in 24 hours.</p>`,
+      emailVerificationTemplate(user.name, url),
     );
   }
 }
