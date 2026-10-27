@@ -825,25 +825,6 @@ Lists customer accounts with plan count, total saved, active plan count, and der
 `GET /api/v1/admin/users?search=Chidi&page=1&limit=20`
 </details>
 
-<details>
-<summary><strong>GET /auth/customers — Admin customer directory</strong></summary>
-
-- **Method:** `GET`
-- **URL:** `/api/v1/auth/customers`
-- **Auth:** Required
-- **Authorization:** Admin or super admin
-- **Query Parameters:** Optional `search`, `emailVerified`, `page`, and `limit` (maximum 100)
-
-Search matches customer name or email. `emailVerified` accepts `true` or `false`. This existing endpoint remains available for email verification workflows; use `/admin/users` for dashboard plan and service-request details.
-
-### Example
-
-`GET /api/v1/auth/customers?search=Chidi&page=1&limit=20`
-
-### Example with verification filter
-
-`GET /api/v1/auth/customers?emailVerified=false&page=1&limit=50`
-</details>
 
 <details>
 <summary><strong>GET /plans/admin — Admin plans list</strong></summary>

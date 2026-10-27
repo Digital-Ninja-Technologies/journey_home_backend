@@ -30,18 +30,54 @@ export class ServiceRequestRepository {
       .exec();
   }
 
-  listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date; search?: string }) {
+  async listAll(
+    options: PageOptions,
+    filters: {
+      status?: ServiceRequestStatus;
+      ownerId?: string;
+      planId?: string;
+      from?: Date;
+      to?: Date;
+      search?: string;
+    },
+  ) {
     const query: Record<string, unknown> = {};
     if (filters.status) query.status = filters.status;
     if (filters.ownerId) query.owner = filters.ownerId;
     if (filters.planId) query.plan = filters.planId;
-    if (filters.from || filters.to) query.createdAt = { ...(filters.from ? { $gte: filters.from } : {}), ...(filters.to ? { $lte: filters.to } : {}) };
+    if (filters.from || filters.to)
+      query.createdAt = {
+        ...(filters.from ? { $gte: filters.from } : {}),
+        ...(filters.to ? { $lte: filters.to } : {}),
+      };
     if (filters.search) {
       const escaped = filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const users = await User.find({ $or: [{ name: { $regex: escaped, $options: "i" } }, { email: { $regex: escaped, $options: "i" } }] }).select("_id").lean();
-      query.$or = [{ "coveredPersonSnapshot.fullName": { $regex: escaped, $options: "i" } }, { burialLocation: { $regex: escaped, $options: "i" } }, { owner: { $in: users.map(user => user._id) } }];
+      const users = await User.find({
+        $or: [
+          { name: { $regex: escaped, $options: "i" } },
+          { email: { $regex: escaped, $options: "i" } },
+        ],
+      })
+        .select("_id")
+        .lean();
+      query.$or = [
+        {
+          "coveredPersonSnapshot.fullName": { $regex: escaped, $options: "i" },
+        },
+        { burialLocation: { $regex: escaped, $options: "i" } },
+        { owner: { $in: users.map((user) => user._id) } },
+      ];
     }
-    return Promise.all([ServiceRequest.find(query).sort({ createdAt: -1 }).skip(options.skip).limit(options.limit).populate("owner", "name email").populate("plan", "packageDetails").exec(), ServiceRequest.countDocuments(query).exec()]);
+    return Promise.all([
+      ServiceRequest.find(query)
+        .sort({ createdAt: -1 })
+        .skip(options.skip)
+        .limit(options.limit)
+        .populate("owner", "name email")
+        .populate("plan", "packageDetails")
+        .exec(),
+      ServiceRequest.countDocuments(query).exec(),
+    ]);
   }
 
   findRequest(query: Record<string, unknown>) {
@@ -109,7 +145,7 @@ export class ServiceRequestRepository {
   saveDocument(document: IServiceDocument) {
     return document.save();
   }
-  
+
   updateRequest(id: string, update: Record<string, unknown>) {
     return ServiceRequest.findByIdAndUpdate(id, update, { new: true }).exec();
   }
