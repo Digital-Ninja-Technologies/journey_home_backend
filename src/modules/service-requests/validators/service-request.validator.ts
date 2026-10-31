@@ -4,8 +4,8 @@ import { ServiceDocumentStatus, ServiceDocumentType, ServiceRequestStatus } from
 export const CreateServiceRequestValidator = z.object({
   planId: z.string().min(1),
   dateOfDeath: z.string().datetime(),
-  burialLocation: z.string().trim().min(3),
-  expectedBurialDate: z.string().datetime(),
+  serviceLocation: z.string().trim().min(3),
+  expectedServiceDate: z.string().datetime(),
   contactPerson: z.string().trim().min(2),
   contactPhone: z.string().trim().min(5),
   additionalInformation: z.string().trim().optional(),

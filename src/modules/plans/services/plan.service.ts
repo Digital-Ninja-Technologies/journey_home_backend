@@ -5,7 +5,11 @@ import { PackageService } from "../../packages/services/package.service";
 import { PlanStatus, IPlan, CoverageStatus } from "../models/plan.model";
 import { PlanRepository } from "../repositories/plan.repository";
 import { PlanStateService } from "./plan-state.service";
-import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
+import {
+  PageOptions,
+  pageResult,
+  PaginatedResult,
+} from "../../../common/utils/pagination";
 import { CreatePlanDto } from "../validators/plan.validator";
 import { NotificationEvent } from "../../notifications/models/notification.model";
 import { NotificationService } from "../../notifications/services/notification.service";
@@ -21,7 +25,8 @@ export class PlanService {
 
     const packageDetails = this.packages.toSnapshot(pkg);
 
-    if (!pkg.paystackPlanCode || pkg.paystackPlanStatus !== "ready") throw new BadRequestError("Package subscription setup is incomplete");
+    if (!pkg.paystackPlanCode || pkg.paystackPlanStatus !== "ready")
+      throw new BadRequestError("Package subscription setup is incomplete");
     const startDate = new Date();
 
     // Keep plan creation transactional.
@@ -53,21 +58,19 @@ export class PlanService {
 
             startDate,
 
-
             status: PlanStatus.PENDING,
 
             coverageStatus: CoverageStatus.PENDING,
           },
           session,
         );
-
       });
 
       await new NotificationService().notifyUser({
         userId: ownerId,
         event: NotificationEvent.PLAN_CREATED,
         dedupeKey: `${plan._id}:created`,
-        title: "Burial plan created",
+        title: "Plan created",
         message: `Your ${packageDetails.name} plan for ${dto.coveredPerson.fullName} has been created. Complete the initial contribution to activate coverage.`,
       });
       return plan;
@@ -78,8 +81,16 @@ export class PlanService {
   }
 
   // Return all plans belonging to a specific owner.
-  async listForOwner(ownerId: string, options: PageOptions, filters: { name?: string; status?: PlanStatus; from?: Date; to?: Date }): Promise<PaginatedResult<IPlan>> {
-    const [items, total] = await this.repository.listForOwner(ownerId, options, filters);
+  async listForOwner(
+    ownerId: string,
+    options: PageOptions,
+    filters: { name?: string; status?: PlanStatus; from?: Date; to?: Date },
+  ): Promise<PaginatedResult<IPlan>> {
+    const [items, total] = await this.repository.listForOwner(
+      ownerId,
+      options,
+      filters,
+    );
     return pageResult(items, total, options);
   }
 
@@ -88,7 +99,16 @@ export class PlanService {
   }
 
   // Return all plans, typically for an administrative view.
-  async listAll(options: PageOptions, filters: { status?: PlanStatus; ownerId?: string; packageId?: string; search?: string; ownerIds?: Types.ObjectId[] }): Promise<PaginatedResult<IPlan>> {
+  async listAll(
+    options: PageOptions,
+    filters: {
+      status?: PlanStatus;
+      ownerId?: string;
+      packageId?: string;
+      search?: string;
+      ownerIds?: Types.ObjectId[];
+    },
+  ): Promise<PaginatedResult<IPlan>> {
     const [items, total] = await this.repository.listAll(options, filters);
     return pageResult(items, total, options);
   }
@@ -122,9 +142,8 @@ export class PlanService {
   }
 
   async adminTransition(planId: string, status: PlanStatus): Promise<IPlan> {
-
     const plan = await this.getPlan(planId);
-     
+
     this.state.assertTransition(plan.status, status);
 
     plan.status = status;

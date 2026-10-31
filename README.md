@@ -1,8 +1,7 @@
 # ENDPOINTS DOCUMENTATION
 
 ## BASE URL:
-
-`/api/v1`
+`https://journey-home.onrender.com/api/v1`
 
 ## Auth
 
@@ -273,7 +272,7 @@ Customers can retrieve active packages. Admins can retrieve inactive packages to
 }
 ```
 
-Customers cannot create packages or set package prices through plan endpoints. The local package is committed in a database transaction before the Paystack API is called, so Paystack is never called if the database write fails. While provider setup is in progress the package is marked pending; on provider failure it remains locally recorded as failed and is excluded from customer selection until an admin synchronizes it. A price, currency, or interval change creates a new Paystack plan; existing burial plans keep their snapshot and existing subscriptions keep their original provider plan code. Old Paystack plans are retained for those subscriptions.
+Customers cannot create packages or set package prices through plan endpoints. The local package is committed in a database transaction before the Paystack API is called, so Paystack is never called if the database write fails. While provider setup is in progress the package is marked pending; on provider failure it remains locally recorded as failed and is excluded from customer selection until an admin synchronizes it. A price, currency, or interval change creates a new Paystack plan; existing plans keep their snapshot and existing subscriptions keep their original provider plan code. Old Paystack plans are retained for those subscriptions.
 
 </details>
 
@@ -318,7 +317,7 @@ Returns successful contributed amount in minor units, successful payment count f
 </details>
 
 <details>
-<summary><strong>POST /plans — Create burial plan</strong></summary>
+<summary><strong>POST /plans — Create plan</strong></summary>
 
 - **Method:** `POST`
 - **URL:** `/api/v1/plans`
@@ -512,7 +511,7 @@ Returns one subscription owned by the authenticated user. Other owners receive `
 
 </details>
 
-Paystack collects recurring contributions. The subscription record tracks provider status independently from the burial plan; payment records track each transaction outcome.
+Paystack collects recurring contributions. The subscription record tracks provider status independently from the plan; payment records track each transaction outcome.
 
 ---
 
@@ -553,7 +552,7 @@ Deletes one notification owned by the authenticated user. Other users' notificat
 ## Service Requests
 
 <details>
-<summary><strong>POST /service-requests — Submit burial service request</strong></summary>
+<summary><strong>POST /service-requests — Submit service request</strong></summary>
 
 - **Method:** `POST`
 - **URL:** `/api/v1/service-requests`
@@ -567,11 +566,11 @@ Creates a service request for one of the authenticated user's plans. The plan mu
 {
   "planId": "66f...",
   "dateOfDeath": "2026-10-01T00:00:00.000Z",
-  "burialLocation": "Nsukka, Enugu State",
-  "expectedBurialDate": "2026-10-20T10:00:00.000Z",
+  "serviceLocation": "Nsukka, Enugu State",
+  "expectedServiceDate": "2026-10-20T10:00:00.000Z",
   "contactPerson": "Ada Okafor",
   "contactPhone": "08030000000",
-  "additionalInformation": "Family contact is available at the burial location."
+  "additionalInformation": "Family contact is available at the location."
 }
 ```
 
@@ -589,19 +588,6 @@ Creates a service request for one of the authenticated user's plans. The plan mu
 - **Auth:** Required
 
 Returns only service requests owned by the authenticated user.
-
-</details>
-
-<details>
-<summary><strong>GET /service-requests/admin — List all service requests</strong></summary>
-
-- **Method:** `GET`
-- **URL:** `/api/v1/service-requests/admin`
-- **Auth:** Required
-- **Role:** Admin or super admin
-- **Query:** `status` optional; must be one of the service request statuses.
-
-Returns service requests for operations review. Supports `page`, `limit` (maximum 100), `status`, `ownerId`, `planId`, `from`, and `to`; response data contains `items` and pagination metadata.
 
 </details>
 
@@ -729,7 +715,14 @@ Approves a document or requests resubmission. A reason is required when requesti
 }
 ```
 
-If resubmission is required, the request moves to `More_Info_Required` and the customer can upload a replacement document.
+```valid document status
+Requires_Resubmission
+Pending
+Approved
+```
+
+
+When all current documents are approved, the request moves to `Docs_Verified` automatically and can then be approved. If resubmission is required, the request moves to `More_Info_Required` and the customer can upload a replacement document.
 
 </details>
 
@@ -859,7 +852,7 @@ Lists customer accounts with plan count, total saved, active plan count, and der
 - **Authorization:** Admin or super admin
 - **Query Parameters:** Optional `search`, `status`, `ownerId`, `planId`, `from`, `to`, `page`, and `limit` (maximum 100)
 
-`search` matches covered-person name, burial location, or owner's name/email. Dates filter request creation time. Statuses include `Submitted`, `Under_Review`, `More_Info_Required`, `Docs_Verified`, `Approved`, `Rejected`, `Cancelled`, and `Closed`.
+`search` matches covered-person name, location, or owner's name/email. Dates filter request creation time. Statuses include `Submitted`, `Under_Review`, `More_Info_Required`, `Docs_Verified`, `Approved`, `Rejected`, `Cancelled`, and `Closed`.
 
 ### Example
 

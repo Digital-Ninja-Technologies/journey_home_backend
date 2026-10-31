@@ -64,7 +64,7 @@ export class ServiceRequestRepository {
         {
           "coveredPersonSnapshot.fullName": { $regex: escaped, $options: "i" },
         },
-        { burialLocation: { $regex: escaped, $options: "i" } },
+        { serviceLocation: { $regex: escaped, $options: "i" } },
         { owner: { $in: users.map((user) => user._id) } },
       ];
     }

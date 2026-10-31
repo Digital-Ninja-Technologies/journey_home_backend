@@ -50,8 +50,8 @@ export class ServiceRequestService {
       plan: plan._id,
       coveredPersonSnapshot: plan.coveredPerson,
       dateOfDeath: new Date(dto.dateOfDeath),
-      burialLocation: dto.burialLocation,
-      expectedBurialDate: new Date(dto.expectedBurialDate),
+      serviceLocation: dto.serviceLocation,
+      expectedServiceDate: new Date(dto.expectedServiceDate),
       contactPerson: dto.contactPerson,
       contactPhone: dto.contactPhone,
       additionalInformation: dto.additionalInformation,
@@ -72,8 +72,8 @@ export class ServiceRequestService {
       userId: ownerId,
       event: NotificationEvent.SERVICE_REQUEST_RECEIVED,
       dedupeKey: `${request._id}:received`,
-      title: "Burial service request received",
-      message: `We received your burial service request for ${request.coveredPersonSnapshot.fullName}. Our team will review your request and uploaded documents.`,
+      title: "Service request received",
+      message: `We received your service request for ${request.coveredPersonSnapshot.fullName}. Our team will review your request and uploaded documents.`,
     });
 
     return request;
@@ -331,9 +331,24 @@ export class ServiceRequestService {
         dedupeKey: `${document._id}:requires_resubmission`,
         title: "A service request document needs an update",
         message: dto.reason
-          ? `A document for your burial service request needs to be replaced. Review this note from our team: ${dto.reason}`
-          : "A document for your burial service request needs to be replaced. Please review your request and upload a replacement.",
+          ? `A document for your service request needs to be replaced. Review this note from our team: ${dto.reason}`
+          : "A document for your service request needs to be replaced. Please review your request and upload a replacement.",
       });
+    } else {
+      const currentDocuments = await this.repository.listCurrentDocuments(request._id);
+      const allDocumentsApproved = currentDocuments.length > 0 && currentDocuments.every(
+        (currentDocument) => currentDocument.verificationStatus === ServiceDocumentStatus.APPROVED,
+      );
+
+      if (
+        allDocumentsApproved &&
+        request.status === ServiceRequestStatus.SUBMITTED
+      ) {
+        request.status = ServiceRequestStatus.DOCS_VERIFIED;
+        request.verifiedAt = new Date();
+        request.reviewedBy = new Types.ObjectId(adminId);
+        await this.repository.saveRequest(request);
+      }
     }
 
     await this.audit.record({
@@ -388,23 +403,23 @@ export class ServiceRequestService {
       const descriptions: Partial<Record<ServiceRequestStatus, { title: string; message: string }>> = {
         [ServiceRequestStatus.DOCS_VERIFIED]: {
           title: "Service request documents approved",
-          message: "Our team approved the documents for your burial service request. The request can now proceed to the next review step.",
+          message: "Our team approved the documents for your service request. The request can now proceed to the next review step.",
         },
         [ServiceRequestStatus.APPROVED]: {
-          title: "Burial service request approved",
-          message: "Your burial service request has been approved. Our team will contact you with the next steps.",
+          title: "Service request approved",
+          message: "Your service request has been approved. Our team will contact you with the next steps.",
         },
         [ServiceRequestStatus.REJECTED]: {
-          title: "Burial service request declined",
+          title: "Service request declined",
           message: dto.reason
-            ? `Our team declined your burial service request. Reason: ${dto.reason}`
-            : "Our team declined your burial service request. Contact support if you need more information.",
+            ? `Our team declined your service request. Reason: ${dto.reason}`
+            : "Our team declined your service request. Contact support if you need more information.",
         },
         [ServiceRequestStatus.MORE_INFO_REQUIRED]: {
           title: "More information needed for your service request",
           message: dto.reason
-            ? `Please provide more information for your burial service request: ${dto.reason}`
-            : "Our team needs more information before continuing with your burial service request. Review your request for details.",
+            ? `Please provide more information for your service request: ${dto.reason}`
+            : "Our team needs more information before continuing with your service request. Review your request for details.",
         },
       };
       const copy = descriptions[dto.status];

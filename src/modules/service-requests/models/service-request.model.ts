@@ -29,8 +29,8 @@ export interface IServiceRequest extends Document {
   plan: Types.ObjectId;
   coveredPersonSnapshot: ICoveredPerson;
   dateOfDeath: Date;
-  burialLocation: string;
-  expectedBurialDate: Date;
+  serviceLocation: string;
+  expectedServiceDate: Date;
   contactPerson: string;
   contactPhone: string;
   additionalInformation?: string;
@@ -96,8 +96,8 @@ const ServiceRequestSchema = new Schema<IServiceRequest>(
       required: true,
     },
     dateOfDeath: { type: Date, required: true },
-    burialLocation: { type: String, required: true, trim: true },
-    expectedBurialDate: { type: Date, required: true },
+    serviceLocation: { type: String, required: true, trim: true },
+    expectedServiceDate: { type: Date, required: true },
     contactPerson: { type: String, required: true, trim: true },
     contactPhone: { type: String, required: true, trim: true },
     additionalInformation: { type: String, trim: true },

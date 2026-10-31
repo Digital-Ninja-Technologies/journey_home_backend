@@ -75,7 +75,7 @@ const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
     [NotificationEvent.SERVICE_REQUEST_RECEIVED]: {
       title: "Service request received",
       message:
-        "We received your burial service request. Our team will review the details and documents.",
+        "We received your service request. Our team will review the details and documents.",
     },
     [NotificationEvent.SERVICE_DOCUMENTS_APPROVED]: {
       title: "Documents approved",
@@ -90,12 +90,12 @@ const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
     [NotificationEvent.SERVICE_REQUEST_APPROVED]: {
       title: "Service request approved",
       message:
-        "Your burial service request has been approved. Our team will share the next steps with you.",
+        "Your service request has been approved. Our team will share the next steps with you.",
     },
     [NotificationEvent.SERVICE_REQUEST_REJECTED]: {
       title: "Service request declined",
       message:
-        "Your burial service request was declined. Review the reason in your request details or contact support.",
+        "Your service request was declined. Review the reason in your request details or contact support.",
     },
     [NotificationEvent.SERVICE_MORE_INFO_REQUIRED]: {
       title: "More information required",
@@ -105,17 +105,17 @@ const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
     [NotificationEvent.SERVICE_PROVIDER_ASSIGNED]: {
       title: "Service provider assigned",
       message:
-        "A provider has been assigned to your burial service request. We will share relevant service details with you.",
+        "A provider has been assigned to your service request. We will share relevant service details with you.",
     },
     [NotificationEvent.SERVICE_SCHEDULED]: {
       title: "Service scheduled",
       message:
-        "Your requested burial service has been scheduled. Review your request for the confirmed details.",
+        "Your requested service has been scheduled. Review your request for the confirmed details.",
     },
     [NotificationEvent.SERVICE_COMPLETED]: {
       title: "Service completed",
       message:
-        "Your requested burial service has been marked complete. Contact support if you need any follow-up.",
+        "Your requested service has been marked complete. Contact support if you need any follow-up.",
     },
     [NotificationEvent.PRODUCT_NEWS_OFFERS]: { title: "Product news and offers", message: "See the latest Journey Home packages and features." },
   };
