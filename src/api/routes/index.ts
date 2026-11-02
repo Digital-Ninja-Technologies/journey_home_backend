@@ -7,6 +7,7 @@ import notificationRoutes from "../../modules/notifications/routes/notification.
 import serviceRequestRoutes from "../../modules/service-requests/routes/service-request.routes";
 import subscriptionRoutes from "../../modules/subscriptions/routes/subscription.routes";
 import adminRoutes from "../../modules/admin/admin.routes";
+import contactRoutes from "../../modules/contact/routes/contact.routes";
 
 const router = Router();
 
@@ -28,5 +29,6 @@ router.use("/payments", paymentRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/service-requests", serviceRequestRoutes);
+router.use("/contact", contactRoutes);
 
 export default router;

@@ -587,7 +587,7 @@ Creates a service request for one of the authenticated user's plans. The plan mu
 - **URL:** `/api/v1/service-requests`
 - **Auth:** Required
 
-Returns only service requests owned by the authenticated user.
+Returns only service requests owned by the authenticated user. Each request includes its `documents` array; each document includes a temporary `url` (valid for 900 seconds) for downloading the associated file.
 
 </details>
 
@@ -598,7 +598,7 @@ Returns only service requests owned by the authenticated user.
 - **URL:** `/api/v1/service-requests/:id`
 - **Auth:** Required
 
-Customers can retrieve only their own requests. Admins can retrieve any request. The response includes the request and document records, but not public file URLs.
+Customers can retrieve only their own requests. Admins can retrieve any request. The response includes the request and its document records. Documents appear in the request's `documents` array and in the existing top-level `documents` field; each includes a temporary `url` (valid for 900 seconds).
 
 </details>
 
@@ -774,6 +774,62 @@ All administrative request status changes use this endpoint. `reason` is optiona
 
 ---
 
+## Contact
+
+<details>
+<summary><strong>POST /contact — Submit a contact message</strong></summary>
+
+- **Method:** `POST`
+- **URL:** `/api/v1/contact`
+- **Auth:** Not required
+
+Stores a message from the website contact form. All fields are required. `topic` must be one of `Starting a plan`, `An existing plan`, `Photographer network`, or `Something else`.
+
+```json
+{
+  "name": "Adebayo Okafor",
+  "phone": "+2348012345678",
+  "email": "adebayo@example.com",
+  "topic": "An existing plan",
+  "message": "I have a question about my monthly contribution."
+}
+```
+
+Returns the created contact submission with HTTP `201`.
+
+</details>
+
+<details>
+<summary><strong>GET /contact/admin — List contact messages</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/contact/admin`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `page`, `limit` (maximum 100), and `search`
+
+Returns contact submissions newest first with pagination metadata. `search` matches the submitter's name or email address, case-insensitively.
+
+```text
+GET /api/v1/contact/admin?search=adebayo&page=1&limit=20
+```
+
+</details>
+
+<details>
+<summary><strong>GET /contact/admin/:id — Get one contact message</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/contact/admin/:id`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+
+Returns a single contact submission. An invalid ID returns `400`; a valid ID with no matching submission returns `404`.
+
+</details>
+
+---
+
 ## Admin endpoints
 
 All endpoints in this section require a bearer token and an admin or super-admin role. Monetary values are stored and returned in minor units (`1500000` means ₦15,000).
@@ -853,6 +909,8 @@ Lists customer accounts with plan count, total saved, active plan count, and der
 - **Query Parameters:** Optional `search`, `status`, `ownerId`, `planId`, `from`, `to`, `page`, and `limit` (maximum 100)
 
 `search` matches covered-person name, location, or owner's name/email. Dates filter request creation time. Statuses include `Submitted`, `Under_Review`, `More_Info_Required`, `Docs_Verified`, `Approved`, `Rejected`, `Cancelled`, and `Closed`.
+
+Each request includes its `documents` array; each document includes a temporary `url` (valid for 900 seconds) for downloading the associated file.
 
 ### Example
 

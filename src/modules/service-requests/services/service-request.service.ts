@@ -21,6 +21,9 @@ import { AssignPhotographerDto } from "../validators/service-request.validator";
 import { CreateServiceRequestDto, RequestServiceDocumentUploadDto, CompleteServiceDocumentUploadDto, VerifyServiceDocumentDto } from "../validators/service-request.validator";
 import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
 
+type ServiceDocumentWithDownloadUrl = IServiceDocument & { url: string; expiresIn: number };
+type ServiceRequestWithDocuments = IServiceRequest & { documents: ServiceDocumentWithDownloadUrl[] };
+
 export class ServiceRequestService {
   private files = new FileService();
   private fileRepo = new FileRepository();
@@ -79,20 +82,30 @@ export class ServiceRequestService {
     return request;
   }
 
-  async listMine(ownerId: string): Promise<IServiceRequest[]> {
-    return this.repository.listMine(ownerId);
+  async listMine(ownerId: string): Promise<ServiceRequestWithDocuments[]> {
+    const requests = await this.repository.listMine(ownerId);
+    return Promise.all(requests.map((request) => this.attachDocuments(request)));
   }
 
-  async listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date; search?: string }): Promise<PaginatedResult<IServiceRequest>> {
+  async listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date; search?: string }): Promise<PaginatedResult<ServiceRequestWithDocuments>> {
     const [items, total] = await this.repository.listAll(options, filters);
-    return pageResult(items, total, options);
+    return pageResult(await Promise.all(items.map((request) => this.attachDocuments(request))), total, options);
+  }
+
+  private async attachDocuments(request: IServiceRequest): Promise<ServiceRequestWithDocuments> {
+    const documents = await this.repository.listDocuments(request._id);
+    const documentsWithUrls = await Promise.all(documents.map(async (document) => {
+      const result = await this.files.getFileById(document.file.toString());
+      return Object.assign(document.toObject(), { url: result.url, expiresIn: 900 }) as ServiceDocumentWithDownloadUrl;
+    }));
+    return Object.assign(request.toObject(), { documents: documentsWithUrls }) as ServiceRequestWithDocuments;
   }
 
   async getForUser(
     requestId: string,
     userId: string,
     isAdmin: boolean,
-  ): Promise<{ request: IServiceRequest; documents: IServiceDocument[] }> {
+  ): Promise<{ request: IServiceRequest; documents: ServiceDocumentWithDownloadUrl[] }> {
     if (!Types.ObjectId.isValid(requestId))
       throw new BadRequestError("Invalid service request id");
 
@@ -104,7 +117,7 @@ export class ServiceRequestService {
 
     if (!request) throw new NotFoundError("Service request not found");
 
-    const documents = await this.repository.listDocuments(request._id);
+    const enriched = await this.attachDocuments(request);
 
     if (isAdmin) {
       await this.audit.record({
@@ -115,7 +128,7 @@ export class ServiceRequestService {
       });
     }
 
-    return { request, documents };
+    return { request: enriched, documents: enriched.documents };
   }
 
   async requestDocumentUpload(requestId: string, ownerId: string, dto: RequestServiceDocumentUploadDto) {
