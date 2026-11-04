@@ -15,6 +15,21 @@
 All four boolean fields are required: `paymentReminders`, `deficitAlerts`, `serviceRequestUpdates`, and `productNewsOffers`. Defaults enable the first three and disable product news and offers. Preferences control notification email delivery.
 
 **Body:** `{"paymentReminders":true,"deficitAlerts":true,"serviceRequestUpdates":true,"productNewsOffers":false}`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Notification preferences updated successfully",
+  "data": {
+    "paymentReminders": true,
+    "deficitAlerts": true,
+    "serviceRequestUpdates": true,
+    "productNewsOffers": false
+  }
+}
+```
 </details>
 
 <details>
@@ -25,6 +40,16 @@ All four boolean fields are required: `paymentReminders`, `deficitAlerts`, `serv
 - **Auth:** Required
 
 Requires the current password: `{"password":"current-password"}`. Deletes the authenticated user account.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Account deleted successfully",
+  "data": { "message": "Account deleted successfully" }
+}
+```
 </details>
 
 <details>
@@ -88,6 +113,23 @@ Logs in a verified account. Unverified accounts receive `401` until the email ve
 
 **Response (200):** authenticated user profile and access token.
 
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "674a1b2c3d4e5f6789012345",
+      "email": "ada@example.com",
+      "name": "Ada Okafor",
+      "role": "customer",
+      "isSuperAdmin": false
+    },
+    "token": "<access-token>"
+  }
+}
+```
+
 **Errors:** `400` validation error, `401` invalid credentials.
 
 </details>
@@ -104,6 +146,16 @@ Logs in a verified account. Unverified accounts receive `401` until the email ve
 ```json
 { "token": "..." }
 ```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Email verified successfully",
+  "data": { "message": "Email verified successfully" }
+}
+```
 </details>
 
 <details>
@@ -117,6 +169,16 @@ Logs in a verified account. Unverified accounts receive `401` until the email ve
 
 ```json
 { "email": "ada@example.com" }
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Verification email request processed",
+  "data": { "message": "If the account needs verification, a new link has been sent" }
+}
 ```
 </details>
 
@@ -134,6 +196,16 @@ Logs in a verified account. Unverified accounts receive `401` until the email ve
 ```
 
 sends a one-time reset link when the account exists (one-hour expiry);
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Password reset request processed",
+  "data": { "message": "If an account exists for that email, password reset instructions have been sent" }
+}
+```
 </details>
 
 <details>
@@ -148,6 +220,16 @@ sends a one-time reset link when the account exists (one-hour expiry);
 ```json
 { "token": "...", "newPassword": "a-longer-password" }
 ```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Password reset successfully",
+  "data": { "message": "Password reset successfully" }
+}
+```
 </details>
 
 <details>
@@ -156,6 +238,31 @@ sends a one-time reset link when the account exists (one-hour expiry);
 - **Method:** `POST`
 - **URL:** `/auth/me`
 - **Auth:** required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "User profile retrieved successfully",
+  "data": {
+    "id": "674a1b2c3d4e5f6789012345",
+    "email": "ada@example.com",
+    "name": "Ada Okafor",
+    "role": "customer",
+    "isSuperAdmin": false,
+    "isEmailVerified": true,
+    "createdAt": "2026-10-01T12:00:00.000Z",
+    "updatedAt": "2026-10-01T12:00:00.000Z",
+    "notificationPreferences": {
+      "paymentReminders": true,
+      "deficitAlerts": true,
+      "serviceRequestUpdates": true,
+      "productNewsOffers": false
+    }
+  }
+}
+```
 
 </details>
 
@@ -167,18 +274,63 @@ sends a one-time reset link when the account exists (one-hour expiry);
 - **DELETE** `/api/v1/auth/admin/:id` — delete admin. Auth required: super admin.
 
 - **GET** `/api/v1/auth/admins` — list admins. Auth required: super admin.
+
+Admin creation returns `201` with `{ "success": true, "message": "Admin added successfully", "data": { "id": "674a1b2c3d4e5f6789012345", "email": "admin@example.com", "name": "Admin", "role": "admin", "isSuperAdmin": false, "createdAt": "2026-10-01T12:00:00.000Z" } }`.
+
+Admin deletion returns `200` with `{ "success": true, "message": "Admin deleted successfully", "data": { "id": "674a1b2c3d4e5f6789012345", "email": "admin@example.com" } }`.
+
+Listing admins returns `200` with `{ "success": true, "message": "Admins retrieved successfully", "data": [{ "id": "674a1b2c3d4e5f6789012345", "email": "admin@example.com", "name": "Admin", "role": "admin", "isSuperAdmin": false, "createdAt": "2026-10-01T12:00:00.000Z" }] }`.
 </details>
 
 <details>
 <summary><strong>change password</strong></summary>
 
 - **PATCH** `/api/v1/auth/change-password` — reset
+
+The controller returns `200` with `{ "success": true, "message": "Password changed successfully", "data": { "message": "Password changed successfully" } }` when the current password matches.
 </details>
 
 <details>
 <summary><strong>Get all customers</strong></summary>
 
 - **GET** `/api/v1/auth/customers?page=1&limit=20&search=ada&emailVerified=true` returns `{ items, pagination }`. Search matches name/email; `emailVerified` accepts `true` or `false`. Requires admin or super admin.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Customers retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "_id": "674a1b2c3d4e5f6789012345",
+        "email": "ada@example.com",
+        "name": "Ada Okafor",
+        "role": "customer",
+        "isSuperAdmin": false,
+        "isEmailVerified": true,
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "updatedAt": "2026-10-01T12:00:00.000Z",
+        "notificationPreferences": {
+          "paymentReminders": true,
+          "deficitAlerts": true,
+          "serviceRequestUpdates": true,
+          "productNewsOffers": false
+        }
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "totalPages": 1,
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}
+```
 </details>
 
 ---
@@ -231,6 +383,33 @@ Only packages with a successfully created Paystack monthly plan are listed as av
 Returns active and inactive packages for administration.
 Supports `page`, `limit` (maximum 100), `search`, and `isActive=true|false`; response data contains `items` and pagination metadata.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Packages retrieved successfully",
+  "data": {
+    "items": [{
+      "_id": "66f123456789012345678901",
+      "name": "Classic Memorial",
+      "description": "Configured commercial package terms",
+      "features": ["Half-day photography", "Digital gallery"],
+      "amount": 1000000,
+      "currency": "NGN",
+      "billingInterval": "monthly",
+      "isActive": true,
+      "createdBy": "66f123456789012345678902",
+      "updatedBy": "66f123456789012345678902",
+      "createdAt": "2026-10-01T12:00:00.000Z",
+      "updatedAt": "2026-10-01T12:00:00.000Z",
+      "__v": 0
+    }],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
+  }
+}
+```
+
 </details>
 
 <details>
@@ -243,6 +422,30 @@ Supports `page`, `limit` (maximum 100), `search`, and `isActive=true|false`; res
 Customers can retrieve active packages. Admins can retrieve inactive packages too.
 
 **Errors:** `400` invalid id, `404` package not found.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Package retrieved successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "name": "Classic Memorial",
+    "description": "Configured commercial package terms",
+    "features": ["Half-day photography", "Digital gallery"],
+    "amount": 1000000,
+    "currency": "NGN",
+    "billingInterval": "monthly",
+    "isActive": true,
+    "createdBy": "66f123456789012345678902",
+    "updatedBy": "66f123456789012345678902",
+    "createdAt": "2026-10-01T12:00:00.000Z",
+    "updatedAt": "2026-10-01T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 </details>
 
@@ -274,6 +477,30 @@ Customers can retrieve active packages. Admins can retrieve inactive packages to
 
 Customers cannot create packages or set package prices through plan endpoints. The local package is committed in a database transaction before the Paystack API is called, so Paystack is never called if the database write fails. While provider setup is in progress the package is marked pending; on provider failure it remains locally recorded as failed and is excluded from customer selection until an admin synchronizes it. A price, currency, or interval change creates a new Paystack plan; existing plans keep their snapshot and existing subscriptions keep their original provider plan code. Old Paystack plans are retained for those subscriptions.
 
+**Response (201):**
+
+```json
+{
+  "success": true,
+  "message": "Package created successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "name": "Classic Memorial",
+    "description": "Configured commercial package terms",
+    "features": ["Half-day photography", "Digital gallery", "Dedicated coordinator"],
+    "amount": 1000000,
+    "currency": "NGN",
+    "billingInterval": "monthly",
+    "isActive": true,
+    "createdBy": "66f123456789012345678902",
+    "updatedBy": "66f123456789012345678902",
+    "createdAt": "2026-10-01T12:00:00.000Z",
+    "updatedAt": "2026-10-01T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
+
 </details>
 
 <details>
@@ -288,6 +515,30 @@ Accepts editable package fields, including `isActive` and `billingInterval` (`mo
 
 **Errors:** `400` invalid id or protected field, `404` package not found.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Package updated successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "name": "Classic Memorial",
+    "description": "Configured commercial package terms",
+    "features": ["Half-day photography", "Digital gallery"],
+    "amount": 1000000,
+    "currency": "NGN",
+    "billingInterval": "monthly",
+    "isActive": true,
+    "createdBy": "66f123456789012345678902",
+    "updatedBy": "66f123456789012345678902",
+    "createdAt": "2026-10-01T12:00:00.000Z",
+    "updatedAt": "2026-10-02T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
+
 </details>
 
 <details>
@@ -299,6 +550,30 @@ Accepts editable package fields, including `isActive` and `billingInterval` (`mo
 - **Role:** Admin or super admin
 
 Creates a new Paystack plan using the package's current amount, currency, and interval, then stores the provider identifiers and marks the package ready. Use this to prepare packages created before Paystack plan synchronization was added. A provider failure leaves the local package unchanged.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Package synchronized with Paystack successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "name": "Classic Memorial",
+    "description": "Configured commercial package terms",
+    "features": ["Half-day photography", "Digital gallery"],
+    "amount": 1000000,
+    "currency": "NGN",
+    "billingInterval": "monthly",
+    "isActive": true,
+    "createdBy": "66f123456789012345678902",
+    "updatedBy": "66f123456789012345678902",
+    "createdAt": "2026-10-01T12:00:00.000Z",
+    "updatedAt": "2026-10-01T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 </details>
 
@@ -314,6 +589,21 @@ Creates a new Paystack plan using the package's current amount, currency, and in
 - **Auth:** Required
 
 Returns successful contributed amount in minor units, successful payment count for the current calendar month, active plan count, and the next future payment date across the authenticated owner's plans. For NGN, `1000000` means ₦10,000.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Dashboard summary retrieved successfully",
+  "data": {
+    "totalContributed": 1000000,
+    "paymentCount": 2,
+    "activePlans": 1,
+    "nextPaymentDate": "2026-12-01T00:00:00.000Z"
+  }
+}
+```
 </details>
 
 <details>
@@ -344,7 +634,45 @@ Package amounts are supplied in major currency units (for example, `10000` is �
 }
 ```
 
-**Response (201):** plan with `status: "Pending"`, `coverageStatus: "Pending"`, `totalContributedMinor: 0`.
+**Response (201):**
+
+```json
+{
+  "success": true,
+  "message": "Plan created successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "package": "66f123456789012345678903",
+    "packageDetails": {
+      "packageId": "66f123456789012345678903",
+      "name": "Classic Memorial",
+      "description": "Configured commercial package terms",
+      "features": ["Half-day photography", "Digital gallery"],
+      "amount": 1000000,
+      "currency": "NGN"
+    },
+    "coveredPerson": {
+      "fullName": "Chinedu Okafor",
+      "dateOfBirth": "1958-04-10T00:00:00.000Z",
+      "gender": "male",
+      "relationship": "father",
+      "address": "12 Market Road, Enugu",
+      "phoneNumber": "08030000000"
+    },
+    "amount": 1000000,
+    "currency": "NGN",
+    "billingInterval": "monthly",
+    "startDate": "2026-11-04T12:00:00.000Z",
+    "totalContributedAmount": 0,
+    "status": "Pending",
+    "coverageStatus": "Pending",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 **Business rules:** plan activation requires a verified successful initial payment.
 
@@ -359,6 +687,49 @@ Package amounts are supplied in major currency units (for example, `10000` is �
 
 Returns only plans owned by the authenticated user. Supports `page`, `limit` (maximum 100), `name` (covered-person name), `status`, `from`, and `to` (creation date range). Response data contains `items` and pagination metadata.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Plans retrieved successfully",
+  "data": {
+    "items": [{
+      "_id": "66f123456789012345678901",
+      "owner": "66f123456789012345678902",
+      "package": "66f123456789012345678903",
+      "packageDetails": {
+        "packageId": "66f123456789012345678903",
+        "name": "Classic Memorial",
+        "description": "Configured commercial package terms",
+        "features": ["Half-day photography", "Digital gallery"],
+        "amount": 1000000,
+        "currency": "NGN"
+      },
+      "coveredPerson": {
+        "fullName": "Chinedu Okafor",
+        "dateOfBirth": "1958-04-10T00:00:00.000Z",
+        "gender": "male",
+        "relationship": "father",
+        "address": "12 Market Road, Enugu",
+        "phoneNumber": "08030000000"
+      },
+      "amount": 1000000,
+      "currency": "NGN",
+      "billingInterval": "monthly",
+      "startDate": "2026-11-04T12:00:00.000Z",
+      "totalContributedAmount": 0,
+      "status": "Pending",
+      "coverageStatus": "Pending",
+      "createdAt": "2026-11-04T12:00:00.000Z",
+      "updatedAt": "2026-11-04T12:00:00.000Z",
+      "__v": 0
+    }],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
+  }
+}
+```
+
 </details>
 
 <details>
@@ -370,6 +741,35 @@ Returns only plans owned by the authenticated user. Supports `page`, `limit` (ma
 - **Role:** Admin or super admin
 
 Supports `page`, `limit` (maximum 100), `status`, `ownerId`, `packageId`, and `search` filters. `search` matches covered-person name. Response data contains `items` and pagination metadata.
+
+**Response (200):** same plan fields and pagination structure as `GET /plans`; each plan's `owner` is populated with the owner's `_id`, `name`, and `email`.
+
+```json
+{
+  "success": true,
+  "message": "Plans retrieved successfully",
+  "data": {
+    "items": [{
+      "_id": "66f123456789012345678901",
+      "owner": {"_id": "66f123456789012345678902", "name": "Ada Okafor", "email": "ada@example.com"},
+      "package": "66f123456789012345678903",
+      "packageDetails": {"packageId": "66f123456789012345678903", "name": "Classic Memorial", "description": "Configured commercial package terms", "features": ["Half-day photography", "Digital gallery"], "amount": 1000000, "currency": "NGN"},
+      "coveredPerson": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+      "amount": 1000000,
+      "currency": "NGN",
+      "billingInterval": "monthly",
+      "startDate": "2026-11-04T12:00:00.000Z",
+      "totalContributedAmount": 0,
+      "status": "Pending",
+      "coverageStatus": "Pending",
+      "createdAt": "2026-11-04T12:00:00.000Z",
+      "updatedAt": "2026-11-04T12:00:00.000Z",
+      "__v": 0
+    }],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
+  }
+}
+```
 </details>
 
 <details>
@@ -380,6 +780,32 @@ Supports `page`, `limit` (maximum 100), `status`, `ownerId`, `packageId`, and `s
 - **Auth:** Required
 
 Customers can retrieve only their own plans. Admins can retrieve any plan.
+
+**Response (200):** returns the plan object shown in the `POST /plans` response, including its package snapshot and covered-person details.
+
+```json
+{
+  "success": true,
+  "message": "Plan retrieved successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "package": "66f123456789012345678903",
+    "packageDetails": {"packageId": "66f123456789012345678903", "name": "Classic Memorial", "description": "Configured commercial package terms", "features": ["Half-day photography", "Digital gallery"], "amount": 1000000, "currency": "NGN"},
+    "coveredPerson": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+    "amount": 1000000,
+    "currency": "NGN",
+    "billingInterval": "monthly",
+    "startDate": "2026-11-04T12:00:00.000Z",
+    "totalContributedAmount": 0,
+    "status": "Pending",
+    "coverageStatus": "Pending",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 </details>
 
@@ -400,6 +826,32 @@ Customers can retrieve only their own plans. Admins can retrieve any plan.
 ```
 
 Only explicit state transitions are allowed. Customers cannot change protected lifecycle states.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Plan status updated successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "package": "66f123456789012345678903",
+    "packageDetails": {"packageId": "66f123456789012345678903", "name": "Classic Memorial", "description": "Configured commercial package terms", "features": ["Half-day photography", "Digital gallery"], "amount": 1000000, "currency": "NGN"},
+    "coveredPerson": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+    "amount": 1000000,
+    "currency": "NGN",
+    "billingInterval": "monthly",
+    "startDate": "2026-11-04T12:00:00.000Z",
+    "totalContributedAmount": 0,
+    "status": "Under_Review",
+    "coverageStatus": "Pending",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:10:00.000Z",
+    "__v": 1
+  }
+}
+```
 
 </details>
 
@@ -448,6 +900,33 @@ This creates a pending local subscription relationship, then starts Paystack che
 
 Verifies Paystack status, reference, amount, currency, and internal association before applying the result. Successful initial payments activate the plan and count one contribution exactly once. Journey Home does not store reusable authorization codes; Paystack Subscriptions handles subsequent collection.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Payment verified successfully",
+  "data": {
+    "_id": "66f123456789012345678904",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678901",
+    "amount": 1000000,
+    "currency": "NGN",
+    "reference": "jh_init_example-reference",
+    "providerReference": "jh_init_example-reference",
+    "provider": "paystack",
+    "purpose": "initial_contribution",
+    "status": "Successful",
+    "providerTransactionId": "123456789",
+    "processedAt": "2026-11-04T12:05:00.000Z",
+    "metadata": {"providerStatus": "success"},
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:05:00.000Z",
+    "__v": 0
+  }
+}
+```
+
 </details>
 
 <details>
@@ -461,6 +940,18 @@ Verifies `x-paystack-signature` against the raw request body using HMAC SHA512. 
 
 **Idempotency:** provider events are deduplicated by event name plus provider transaction reference/id. Duplicate deliveries do not double-count contributions.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Webhook processed",
+  "data": { "status": "Processed" }
+}
+```
+
+For an event already processed or ignored, `data.status` is `"duplicate"`.
+
 </details>
 
 <details>
@@ -472,6 +963,33 @@ Verifies `x-paystack-signature` against the raw request body using HMAC SHA512. 
 
 Returns only payment records owned by the authenticated user. Supports `page`, `limit` (maximum 100), `status`, `purpose`, `planId`, `from`, and `to` filters. Authorization codes and provider secrets are not exposed. Response data contains `items` and pagination metadata.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Payments retrieved successfully",
+  "data": {
+    "items": [{
+      "_id": "66f123456789012345678904",
+      "owner": "66f123456789012345678902",
+      "plan": "66f123456789012345678901",
+      "amount": 1000000,
+      "currency": "NGN",
+      "reference": "jh_init_example-reference",
+      "providerReference": "jh_init_example-reference",
+      "provider": "paystack",
+      "purpose": "initial_contribution",
+      "status": "Successful",
+      "createdAt": "2026-11-04T12:00:00.000Z",
+      "updatedAt": "2026-11-04T12:05:00.000Z",
+      "__v": 0
+    }],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
+  }
+}
+```
+
 </details>
 
 <details>
@@ -482,6 +1000,33 @@ Returns only payment records owned by the authenticated user. Supports `page`, `
 - **Auth:** Required
 
 Returns one owned payment record.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Payment retrieved successfully",
+  "data": {
+    "_id": "66f123456789012345678904",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678901",
+    "amount": 1000000,
+    "currency": "NGN",
+    "reference": "jh_init_example-reference",
+    "providerReference": "jh_init_example-reference",
+    "provider": "paystack",
+    "purpose": "initial_contribution",
+    "status": "Successful",
+    "providerTransactionId": "123456789",
+    "processedAt": "2026-11-04T12:05:00.000Z",
+    "metadata": {"providerStatus": "success"},
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:05:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 </details>
 
@@ -527,6 +1072,31 @@ Paystack collects recurring contributions. The subscription record tracks provid
 Returns the authenticated user's in-app notifications, newest first. Supports `page`, `limit` (maximum 100), `title` (case-insensitive contains match), `isRead=true|false`, `from`, and `to` (ISO date-times). `counts.totalNotifications` and `counts.totalUnreadNotifications` are the user's overall counts; pagination `total` is the number matching the filters.
 
 **Example:** `GET /api/v1/notifications?page=1&limit=20&isRead=false&title=payment&from=2026-10-01T00:00:00.000Z`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Notifications retrieved successfully",
+  "data": {
+    "items": [{
+      "_id": "66f123456789012345678901",
+      "userId": "66f123456789012345678902",
+      "title": "Contribution received",
+      "message": "Your scheduled plan contribution was received successfully.",
+      "event": "RecurringPaymentSuccess",
+      "dedupeKey": "66f123456789012345678904:RecurringPaymentSuccess",
+      "channel": "in_app",
+      "isRead": false,
+      "createdAt": "2026-11-04T12:00:00.000Z",
+      "__v": 0
+    }],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false},
+    "counts": {"totalNotifications": 5, "totalUnreadNotifications": 2}
+  }
+}
+```
 </details>
 
 <details>
@@ -537,6 +1107,27 @@ Returns the authenticated user's in-app notifications, newest first. Supports `p
 - **Auth:** Required
 
 Marks one notification owned by the authenticated user as read. Other users' notifications are not accessible.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Notification marked as read",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "userId": "66f123456789012345678902",
+    "title": "Contribution received",
+    "message": "Your scheduled plan contribution was received successfully.",
+    "event": "RecurringPaymentSuccess",
+    "dedupeKey": "66f123456789012345678904:RecurringPaymentSuccess",
+    "channel": "in_app",
+    "isRead": true,
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 </details>
 
 <details>
@@ -547,6 +1138,27 @@ Marks one notification owned by the authenticated user as read. Other users' not
 - **Auth:** Required
 
 Deletes one notification owned by the authenticated user. Other users' notifications are not accessible.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Notification deleted successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "userId": "66f123456789012345678902",
+    "title": "Contribution received",
+    "message": "Your scheduled plan contribution was received successfully.",
+    "event": "RecurringPaymentSuccess",
+    "dedupeKey": "66f123456789012345678904:RecurringPaymentSuccess",
+    "channel": "in_app",
+    "isRead": false,
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 </details>
 
 ## Service Requests
@@ -574,7 +1186,37 @@ Creates a service request for one of the authenticated user's plans. The plan mu
 }
 ```
 
-**Response (201):** service request with `status: "Submitted"`.
+**Response (201):**
+
+```json
+{
+  "success": true,
+  "message": "Service request submitted successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678903",
+    "coveredPersonSnapshot": {
+      "fullName": "Chinedu Okafor",
+      "dateOfBirth": "1958-04-10T00:00:00.000Z",
+      "gender": "male",
+      "relationship": "father",
+      "address": "12 Market Road, Enugu",
+      "phoneNumber": "08030000000"
+    },
+    "dateOfDeath": "2026-10-01T00:00:00.000Z",
+    "serviceLocation": "Nsukka, Enugu State",
+    "expectedServiceDate": "2026-10-20T10:00:00.000Z",
+    "contactPerson": "Ada Okafor",
+    "contactPhone": "08030000000",
+    "additionalInformation": "Family contact is available at the location.",
+    "status": "Submitted",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 **Business rules:** submitting a request moves the plan into `Service_Request`. Required document rules are configurable operationally; the implementation supports death certificate, valid identification, and other proof documents.
 
@@ -589,6 +1231,32 @@ Creates a service request for one of the authenticated user's plans. The plan mu
 
 Returns only service requests owned by the authenticated user. Each request includes its `documents` array; each document includes a temporary `url` (valid for 900 seconds) for downloading the associated file.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Service requests retrieved successfully",
+  "data": [{
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678903",
+    "coveredPersonSnapshot": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+    "dateOfDeath": "2026-10-01T00:00:00.000Z",
+    "serviceLocation": "Nsukka, Enugu State",
+    "expectedServiceDate": "2026-10-20T10:00:00.000Z",
+    "contactPerson": "Ada Okafor",
+    "contactPhone": "08030000000",
+    "additionalInformation": "Family contact is available at the location.",
+    "status": "Submitted",
+    "documents": [],
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }]
+}
+```
+
 </details>
 
 <details>
@@ -599,6 +1267,35 @@ Returns only service requests owned by the authenticated user. Each request incl
 - **Auth:** Required
 
 Customers can retrieve only their own requests. Admins can retrieve any request. The response includes the request and its document records. Documents appear in the request's `documents` array and in the existing top-level `documents` field; each includes a temporary `url` (valid for 900 seconds).
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Service request retrieved successfully",
+  "data": {
+    "request": {
+      "_id": "66f123456789012345678901",
+      "owner": "66f123456789012345678902",
+      "plan": "66f123456789012345678903",
+      "coveredPersonSnapshot": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+      "dateOfDeath": "2026-10-01T00:00:00.000Z",
+      "serviceLocation": "Nsukka, Enugu State",
+      "expectedServiceDate": "2026-10-20T10:00:00.000Z",
+      "contactPerson": "Ada Okafor",
+      "contactPhone": "08030000000",
+      "additionalInformation": "Family contact is available at the location.",
+      "status": "Submitted",
+      "documents": [],
+      "createdAt": "2026-11-04T12:00:00.000Z",
+      "updatedAt": "2026-11-04T12:00:00.000Z",
+      "__v": 0
+    },
+    "documents": []
+  }
+}
+```
 
 </details>
 
@@ -665,6 +1362,28 @@ Verifies the uploaded Tigris object with `HeadObject`, marks the file uploaded, 
 
 `replacesDocumentId` is optional and is used for resubmission after a document was marked `Requires_Resubmission`.
 
+**Response (201):**
+
+```json
+{
+  "success": true,
+  "message": "Service document upload completed successfully",
+  "data": {
+    "_id": "66f123456789012345678905",
+    "serviceRequest": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678903",
+    "file": "66f123456789012345678906",
+    "documentType": "Death_Certificate",
+    "verificationStatus": "Pending",
+    "uploadedAt": "2026-11-04T12:05:00.000Z",
+    "createdAt": "2026-11-04T12:05:00.000Z",
+    "updatedAt": "2026-11-04T12:05:00.000Z",
+    "__v": 0
+  }
+}
+```
+
 </details>
 
 <details>
@@ -724,6 +1443,30 @@ Approved
 
 When all current documents are approved, the request moves to `Docs_Verified` automatically and can then be approved. If resubmission is required, the request moves to `More_Info_Required` and the customer can upload a replacement document.
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Service document verification updated",
+  "data": {
+    "_id": "66f123456789012345678905",
+    "serviceRequest": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678903",
+    "file": "66f123456789012345678906",
+    "documentType": "Death_Certificate",
+    "verificationStatus": "Approved",
+    "uploadedAt": "2026-11-04T12:05:00.000Z",
+    "verifiedAt": "2026-11-04T12:10:00.000Z",
+    "verifiedBy": "66f123456789012345678907",
+    "createdAt": "2026-11-04T12:05:00.000Z",
+    "updatedAt": "2026-11-04T12:10:00.000Z",
+    "__v": 0
+  }
+}
+```
+
 </details>
 
 <details>
@@ -770,6 +1513,32 @@ All administrative request status changes use this endpoint. `reason` is optiona
 { "status": "Cancelled" }
 ```
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Service request status updated",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678903",
+    "coveredPersonSnapshot": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+    "dateOfDeath": "2026-10-01T00:00:00.000Z",
+    "serviceLocation": "Nsukka, Enugu State",
+    "expectedServiceDate": "2026-10-20T10:00:00.000Z",
+    "contactPerson": "Ada Okafor",
+    "contactPhone": "08030000000",
+    "additionalInformation": "Family contact is available at the location.",
+    "status": "Under_Review",
+    "reviewedBy": "66f123456789012345678907",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:10:00.000Z",
+    "__v": 0
+  }
+}
+```
+
 </details>
 
 ---
@@ -795,7 +1564,25 @@ Stores a message from the website contact form. All fields are required. `topic`
 }
 ```
 
-Returns the created contact submission with HTTP `201`.
+**Response (201):**
+
+```json
+{
+  "success": true,
+  "message": "Your message has been sent successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "name": "Adebayo Okafor",
+    "phone": "+2348012345678",
+    "email": "adebayo@example.com",
+    "topic": "An existing plan",
+    "message": "I have a question about my monthly contribution.",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 </details>
 
@@ -814,6 +1601,19 @@ Returns contact submissions newest first with pagination metadata. `search` matc
 GET /api/v1/contact/admin?search=adebayo&page=1&limit=20
 ```
 
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Contact messages retrieved successfully",
+  "data": {
+    "items": [{"_id": "66f123456789012345678901", "name": "Adebayo Okafor", "phone": "+2348012345678", "email": "adebayo@example.com", "topic": "An existing plan", "message": "I have a question about my monthly contribution.", "createdAt": "2026-11-04T12:00:00.000Z", "updatedAt": "2026-11-04T12:00:00.000Z", "__v": 0}],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
+  }
+}
+```
+
 </details>
 
 <details>
@@ -825,6 +1625,26 @@ GET /api/v1/contact/admin?search=adebayo&page=1&limit=20
 - **Authorization:** Admin or super admin
 
 Returns a single contact submission. An invalid ID returns `400`; a valid ID with no matching submission returns `404`.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Contact message retrieved successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "name": "Adebayo Okafor",
+    "phone": "+2348012345678",
+    "email": "adebayo@example.com",
+    "topic": "An existing plan",
+    "message": "I have a question about my monthly contribution.",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
 
 </details>
 
@@ -852,6 +1672,23 @@ Returns aggregate user, plan, contribution, and service-request totals plus up t
 ### Example with date range
 
 `GET /api/v1/admin/overview?startDate=2026-10-01&endDate=2026-10-26`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Admin dashboard overview retrieved successfully",
+  "data": {
+    "users": {"total": 120, "newThisMonth": 8},
+    "plans": {"active": 45, "overdue": 3, "pendingFirstPayment": 6, "completed": 12},
+    "contributions": {"totalContributed": 150000000, "selectedPeriodContributed": 12000000, "monthlyContributed": 22000000, "monthlyCommitments": 45000000, "averagePerActivePlan": 3333333, "activePlanCount": 45},
+    "serviceRequests": {"new": 2, "inReview": 4, "awaitingCustomer": 1, "approved": 3, "closed": 5, "pendingVerification": 6},
+    "needsReview": [],
+    "period": {"startDate": "2026-10-01T00:00:00.000Z", "endDate": "2026-10-26T23:59:59.999Z"}
+  }
+}
+```
 </details>
 
 <details>
@@ -872,6 +1709,19 @@ Lists customer accounts with plan count, total saved, active plan count, and der
 ### Example with search
 
 `GET /api/v1/admin/users?search=Chidi&page=1&limit=20`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Users retrieved successfully",
+  "data": {
+    "items": [{"_id": "66f123456789012345678901", "name": "Ada Okafor", "email": "ada@example.com", "createdAt": "2026-10-01T12:00:00.000Z", "planCount": 2, "totalSaved": 1500000, "activePlanCount": 1, "status": "Active_Plan"}],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
+  }
+}
+```
 </details>
 
 
@@ -897,6 +1747,8 @@ Lists customer accounts with plan count, total saved, active plan count, and der
 ### Combined query example
 
 `GET /api/v1/plans/admin?search=Adebayo&status=Active&packageId=66f...&page=1&limit=20`
+
+The response shape and sample are documented under `GET /plans/admin` in the `## Plans` section.
 </details>
 
 <details>
@@ -927,6 +1779,34 @@ Each request includes its `documents` array; each document includes a temporary 
 ### Combined query example
 
 `GET /api/v1/service-requests/admin?search=Ikoyi&status=Submitted&from=2026-10-01&to=2026-10-26&page=1&limit=20`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Service requests retrieved successfully",
+  "data": {
+    "items": [{
+      "_id": "66f123456789012345678901",
+      "owner": {"_id": "66f123456789012345678902", "name": "Ada Okafor", "email": "ada@example.com"},
+      "plan": {"_id": "66f123456789012345678903", "packageDetails": {"name": "Classic Memorial"}},
+      "coveredPersonSnapshot": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+      "dateOfDeath": "2026-10-01T00:00:00.000Z",
+      "serviceLocation": "Nsukka, Enugu State",
+      "expectedServiceDate": "2026-10-20T10:00:00.000Z",
+      "contactPerson": "Ada Okafor",
+      "contactPhone": "08030000000",
+      "status": "Under_Review",
+      "documents": [],
+      "createdAt": "2026-11-04T12:00:00.000Z",
+      "updatedAt": "2026-11-04T12:00:00.000Z",
+      "__v": 0
+    }],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
+  }
+}
+```
 </details>
 
 <details>
@@ -942,6 +1822,32 @@ Admin approval remains the explicit `Approved` transition. `Closed` is set by ph
 ### Example
 
 `PATCH /api/v1/service-requests/66f.../status` with body `{"status":"Approved"}`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Service request status updated",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678903",
+    "coveredPersonSnapshot": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+    "dateOfDeath": "2026-10-01T00:00:00.000Z",
+    "serviceLocation": "Nsukka, Enugu State",
+    "expectedServiceDate": "2026-10-20T10:00:00.000Z",
+    "contactPerson": "Ada Okafor",
+    "contactPhone": "08030000000",
+    "status": "Approved",
+    "approvedAt": "2026-11-04T12:10:00.000Z",
+    "reviewedBy": "66f123456789012345678907",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:10:00.000Z",
+    "__v": 0
+  }
+}
+```
 </details>
 
 <details>
@@ -957,6 +1863,33 @@ May be used after a request is approved. Records the assigned photographer and a
 ### Example
 
 `PATCH /api/v1/service-requests/66f.../assign-photographer` with body `{"photographerName":"Adebayo Johnson"}`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Photographer assigned and service request closed",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "owner": "66f123456789012345678902",
+    "plan": "66f123456789012345678903",
+    "coveredPersonSnapshot": {"fullName": "Chinedu Okafor", "dateOfBirth": "1958-04-10T00:00:00.000Z", "gender": "male", "relationship": "father", "address": "12 Market Road, Enugu", "phoneNumber": "08030000000"},
+    "dateOfDeath": "2026-10-01T00:00:00.000Z",
+    "serviceLocation": "Nsukka, Enugu State",
+    "expectedServiceDate": "2026-10-20T10:00:00.000Z",
+    "contactPerson": "Ada Okafor",
+    "contactPhone": "08030000000",
+    "status": "Closed",
+    "photographerName": "Adebayo Johnson",
+    "photographerAssignedAt": "2026-11-04T12:10:00.000Z",
+    "reviewedBy": "66f123456789012345678907",
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:10:00.000Z",
+    "__v": 0
+  }
+}
+```
 </details>
 
 <details>
@@ -989,6 +1922,30 @@ May be used after a request is approved. Records the assigned photographer and a
 ### Combined query example
 
 `GET /api/v1/payments/admin?search=Chidi&status=Successful&purpose=recurring_contribution&from=2026-10-01&to=2026-10-26&page=1&limit=20`
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Payments retrieved successfully",
+  "data": {
+    "items": [{
+      "_id": "66f123456789012345678904",
+      "owner": {"_id": "66f123456789012345678902", "name": "Ada Okafor", "email": "ada@example.com"},
+      "plan": {"_id": "66f123456789012345678903", "coveredPerson": {"fullName": "Chinedu Okafor", "relationship": "father"}, "packageDetails": {"name": "Classic Memorial", "amount": 1000000, "currency": "NGN"}},
+      "reference": "jh_init_example-reference",
+      "amount": 1000000,
+      "currency": "NGN",
+      "purpose": "initial_contribution",
+      "status": "Successful",
+      "createdAt": "2026-11-04T12:00:00.000Z"
+    }],
+    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false},
+    "summary": {"Successful": {"amount": 1000000, "count": 1}, "Failed": {"amount": 0, "count": 0}}
+  }
+}
+```
 </details>
 
 ### Combined admin dashboard data request
