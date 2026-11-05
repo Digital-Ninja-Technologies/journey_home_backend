@@ -85,6 +85,7 @@ export class PaystackService {
     amount: number;
     currency: string;
     reference: string;
+    callback_url: string;
     metadata?: Record<string, unknown>;
     plan?: string;
   }): Promise<{

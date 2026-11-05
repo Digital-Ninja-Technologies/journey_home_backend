@@ -22,6 +22,7 @@ import {
   pageResult,
   PaginatedResult,
 } from "../../../common/utils/pagination";
+import { env } from "@/config/application";
 
 interface PaystackWebhookPayload {
   event: string;
@@ -132,6 +133,7 @@ export class PaymentService {
       amount: payment.amount,
       currency: payment.currency,
       reference: payment.reference,
+      callback_url: env.PAYSTACK_CALLBACK_URL,
       plan: pkg.paystackPlanCode,
       metadata: {
         planId: plan._id.toString(),

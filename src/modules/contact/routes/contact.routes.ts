@@ -9,7 +9,19 @@ const router = Router();
 const controller = new ContactController();
 
 router.post("/", validate(CreateContactSubmissionValidator), controller.create);
-router.get("/admin", authRequired, requireRole([UserRole.ADMIN]), controller.listAll);
-router.get("/admin/:id", authRequired, requireRole([UserRole.ADMIN]), controller.getById);
+
+router.get(
+  "/admin",
+  authRequired,
+  requireRole([UserRole.ADMIN]),
+  controller.listAll,
+);
+
+router.get(
+  "/admin/:id",
+  authRequired,
+  requireRole([UserRole.ADMIN]),
+  controller.getById,
+);
 
 export default router;

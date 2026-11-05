@@ -36,8 +36,8 @@ export const env = {
 
     JWT_REFRESH_SECRET: required("JWT_REFRESH_SECRET"),
 
-   MONGODB_URI: required("MONGODB_URI"),
-
+  MONGODB_URI: required("MONGODB_URI"),
+   
    TIGRIS_ENDPOINT: process.env.TIGRIS_ENDPOINT || "https://t3.storage.dev",
    TIGRIS_REGION: process.env.TIGRIS_REGION || "auto",
    TIGRIS_ACCESS_KEY_ID: process.env.TIGRIS_ACCESS_KEY_ID || "",
