@@ -350,20 +350,30 @@ Returns only active packages that customers may select for new plans.
 
 ```json
 {
-  "success": true,
-  "message": "Packages retrieved successfully",
-  "data": [
-    {
-      "_id": "66f...",
-      "name": "Classic Memorial",
-      "description": "Sample test fixture package",
-      "features": ["Half-day photography", "Digital gallery"],
-      "amount": 1000000,
-      "currency": "NGN",
-      "billingInterval": "monthly",
-      "isActive": true
-    }
-  ]
+    "success": true,
+    "message": "Packages retrieved successfully",
+    "data": [
+        {
+            "_id": "6aedbcef0a487be5942304f0",
+            "name": "Basic.",
+            "description": "Photography + videography",
+            "features": [
+                "Full-day photography & video",
+                "Edited keepsake film",
+                "Printed album, 40 pages",
+                "Digital gallery for family abroad"
+            ],
+            "amount": 100000000,
+            "currency": "NGN",
+            "billingInterval": "monthly",
+            "isActive": true,
+            "createdBy": "6aedb9f80a487be5942304ef",
+            "updatedBy": "6aedb9f80a487be5942304ef",
+            "createdAt": "2026-11-06T11:41:35.492Z",
+            "updatedAt": "2026-11-06T11:41:35.955Z",
+            "__v": 0
+        }
+    ]
 }
 ```
 
@@ -384,29 +394,42 @@ Returns active and inactive packages for administration.
 Supports `page`, `limit` (maximum 100), `search`, and `isActive=true|false`; response data contains `items` and pagination metadata.
 
 **Response (200):**
-
 ```json
 {
-  "success": true,
-  "message": "Packages retrieved successfully",
-  "data": {
-    "items": [{
-      "_id": "66f123456789012345678901",
-      "name": "Classic Memorial",
-      "description": "Configured commercial package terms",
-      "features": ["Half-day photography", "Digital gallery"],
-      "amount": 1000000,
-      "currency": "NGN",
-      "billingInterval": "monthly",
-      "isActive": true,
-      "createdBy": "66f123456789012345678902",
-      "updatedBy": "66f123456789012345678902",
-      "createdAt": "2026-10-01T12:00:00.000Z",
-      "updatedAt": "2026-10-01T12:00:00.000Z",
-      "__v": 0
-    }],
-    "pagination": {"page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false}
-  }
+    "success": true,
+    "message": "Packages retrieved successfully",
+    "data": {
+        "items": [
+            {
+                "_id": "6aedbcef0a487be5942304f0",
+                "name": "Basic.",
+                "description": "Photography + videography",
+                "features": [
+                    "Full-day photography & video",
+                    "Edited keepsake film",
+                    "Printed album, 40 pages",
+                    "Digital gallery for family abroad"
+                ],
+                "amount": 100000000,
+                "currency": "NGN",
+                "billingInterval": "monthly",
+                "isActive": true,
+                "createdBy": "6aedb9f80a487be5942304ef",
+                "updatedBy": "6aedb9f80a487be5942304ef",
+                "createdAt": "2026-11-06T11:41:35.492Z",
+                "updatedAt": "2026-11-06T11:41:35.955Z",
+                "__v": 0
+            }
+        ],
+        "pagination": {
+            "page": 1,
+            "limit": 20,
+            "total": 1,
+            "totalPages": 1,
+            "hasNextPage": false,
+            "hasPreviousPage": false
+        }
+    }
 }
 ```
 
@@ -475,29 +498,32 @@ Customers can retrieve active packages. Admins can retrieve inactive packages to
 }
 ```
 
-Customers cannot create packages or set package prices through plan endpoints. The local package is committed in a database transaction before the Paystack API is called, so Paystack is never called if the database write fails. While provider setup is in progress the package is marked pending; on provider failure it remains locally recorded as failed and is excluded from customer selection until an admin synchronizes it. A price, currency, or interval change creates a new Paystack plan; existing plans keep their snapshot and existing subscriptions keep their original provider plan code. Old Paystack plans are retained for those subscriptions.
-
 **Response (201):**
 
 ```json
 {
-  "success": true,
-  "message": "Package created successfully",
-  "data": {
-    "_id": "66f123456789012345678901",
-    "name": "Classic Memorial",
-    "description": "Configured commercial package terms",
-    "features": ["Half-day photography", "Digital gallery", "Dedicated coordinator"],
-    "amount": 1000000,
-    "currency": "NGN",
-    "billingInterval": "monthly",
-    "isActive": true,
-    "createdBy": "66f123456789012345678902",
-    "updatedBy": "66f123456789012345678902",
-    "createdAt": "2026-10-01T12:00:00.000Z",
-    "updatedAt": "2026-10-01T12:00:00.000Z",
-    "__v": 0
-  }
+    "success": true,
+    "message": "Package created successfully",
+    "data": {
+        "_id": "6aedbcef0a487be5942304f0",
+        "name": "Basic.",
+        "description": "Photography + videography",
+        "features": [
+            "Full-day photography & video",
+            "Edited keepsake film",
+            "Printed album, 40 pages",
+            "Digital gallery for family abroad"
+        ],
+        "amount": 100000000,
+        "currency": "NGN",
+        "billingInterval": "monthly",
+        "isActive": true,
+        "createdBy": "6aedb9f80a487be5942304ef",
+        "updatedBy": "6aedb9f80a487be5942304ef",
+        "createdAt": "2026-11-06T11:41:35.492Z",
+        "updatedAt": "2026-11-06T11:41:35.955Z",
+        "__v": 0
+    }
 }
 ```
 
@@ -540,43 +566,6 @@ Accepts editable package fields, including `isActive` and `billingInterval` (`mo
 ```
 
 </details>
-
-<details>
-<summary><strong>POST /packages/:id/sync-paystack — Create a Paystack plan for an existing package</strong></summary>
-
-- **Method:** `POST`
-- **URL:** `/api/v1/packages/:id/sync-paystack`
-- **Auth:** Required
-- **Role:** Admin or super admin
-
-Creates a new Paystack plan using the package's current amount, currency, and interval, then stores the provider identifiers and marks the package ready. Use this to prepare packages created before Paystack plan synchronization was added. A provider failure leaves the local package unchanged.
-
-**Response (200):**
-
-```json
-{
-  "success": true,
-  "message": "Package synchronized with Paystack successfully",
-  "data": {
-    "_id": "66f123456789012345678901",
-    "name": "Classic Memorial",
-    "description": "Configured commercial package terms",
-    "features": ["Half-day photography", "Digital gallery"],
-    "amount": 1000000,
-    "currency": "NGN",
-    "billingInterval": "monthly",
-    "isActive": true,
-    "createdBy": "66f123456789012345678902",
-    "updatedBy": "66f123456789012345678902",
-    "createdAt": "2026-10-01T12:00:00.000Z",
-    "updatedAt": "2026-10-01T12:00:00.000Z",
-    "__v": 0
-  }
-}
-```
-
-</details>
-
 ---
 
 ## Plans

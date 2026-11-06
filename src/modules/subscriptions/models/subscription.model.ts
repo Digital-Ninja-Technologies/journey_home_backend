@@ -31,14 +31,12 @@ const SubscriptionSchema = new Schema<ISubscription>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
 
     plan: {
       type: Schema.Types.ObjectId,
       ref: "Plan",
       required: true,
-      unique: true,
     },
 
     package: { type: Schema.Types.ObjectId, ref: "Package", required: true },
@@ -55,7 +53,6 @@ const SubscriptionSchema = new Schema<ISubscription>(
       type: String,
       enum: Object.values(SubscriptionStatus),
       default: SubscriptionStatus.PENDING,
-      index: true,
     },
 
     nextPaymentDate: Date,
@@ -65,15 +62,6 @@ const SubscriptionSchema = new Schema<ISubscription>(
   },
 
   { timestamps: true },
-);
-SubscriptionSchema.index({ owner: 1, status: 1 });
-
-SubscriptionSchema.index(
-  { owner: 1, providerPlanCode: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { status: SubscriptionStatus.PENDING },
-  },
 );
 
 export const Subscription = mongoose.model<ISubscription>(
