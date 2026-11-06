@@ -80,16 +80,17 @@ export class PaymentService {
     if (!pkg?.paystackPlanCode)
       throw new BadRequestError("Package is not configured for subscriptions");
     const subscriptions = new SubscriptionRepository();
-    const otherPending = await subscriptions.findOtherPendingForOwnerPlanCode(
-      ownerId,
-      pkg.paystackPlanCode,
-      plan._id,
-    );
 
-    if (otherPending)
-      throw new ConflictError(
-        "Complete the existing checkout for this package before starting another plan checkout",
-      );
+    // const otherPending = await subscriptions.findOtherPendingForOwnerPlanCode(
+    //   ownerId,
+    //   pkg.paystackPlanCode,
+    //   plan._id,
+    // );
+
+    // if (otherPending)
+    //   throw new ConflictError(
+    //     "Complete the existing checkout for this package before starting another plan checkout",
+    //   );
 
     let subscription = await subscriptions.findByPlan(plan._id);
 
