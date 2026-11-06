@@ -43,14 +43,12 @@ const PaymentSchema = new Schema<IPayment>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
 
     plan: {
       type: Schema.Types.ObjectId,
       ref: "Plan",
       required: true,
-      index: true,
     },
 
     amount: { type: Number, required: true, min: 1 },
@@ -94,7 +92,5 @@ const PaymentSchema = new Schema<IPayment>(
   },
   { timestamps: true },
 );
-
-PaymentSchema.index({ plan: 1, purpose: 1, billingCycle: 1 });
 
 export const Payment = mongoose.model<IPayment>("Payment", PaymentSchema);
