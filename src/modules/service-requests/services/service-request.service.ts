@@ -1,4 +1,4 @@
- import mongoose, { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { ForbiddenError } from "../../../common/errors/ForbiddenError";
@@ -18,11 +18,25 @@ import {
 import { ServiceRequestRepository } from "../repositories/service-request.repository";
 import { AdminRequestStatusDto } from "../validators/service-request.validator";
 import { AssignPhotographerDto } from "../validators/service-request.validator";
-import { CreateServiceRequestDto, RequestServiceDocumentUploadDto, CompleteServiceDocumentUploadDto, VerifyServiceDocumentDto } from "../validators/service-request.validator";
-import { PageOptions, pageResult, PaginatedResult } from "../../../common/utils/pagination";
+import {
+  CreateServiceRequestDto,
+  RequestServiceDocumentUploadDto,
+  CompleteServiceDocumentUploadDto,
+  VerifyServiceDocumentDto,
+} from "../validators/service-request.validator";
+import {
+  PageOptions,
+  pageResult,
+  PaginatedResult,
+} from "../../../common/utils/pagination";
 
-type ServiceDocumentWithDownloadUrl = IServiceDocument & { url: string; expiresIn: number };
-type ServiceRequestWithDocuments = IServiceRequest & { documents: ServiceDocumentWithDownloadUrl[] };
+type ServiceDocumentWithDownloadUrl = IServiceDocument & {
+  url: string;
+  expiresIn: number;
+};
+type ServiceRequestWithDocuments = IServiceRequest & {
+  documents: ServiceDocumentWithDownloadUrl[];
+};
 
 export class ServiceRequestService {
   private files = new FileService();
@@ -31,7 +45,10 @@ export class ServiceRequestService {
   private notifications = new NotificationService();
   private repository = new ServiceRequestRepository();
 
-  async create(ownerId: string, dto: CreateServiceRequestDto): Promise<IServiceRequest> {
+  async create(
+    ownerId: string,
+    dto: CreateServiceRequestDto,
+  ): Promise<IServiceRequest> {
     const plan = await this.repository.findPlanForOwner(dto.planId, ownerId);
 
     if (!plan) throw new NotFoundError("Plan not found");
@@ -66,7 +83,7 @@ export class ServiceRequestService {
     await this.audit.record({
       actorId: ownerId,
       action: "service_request.created",
-      resourceType: "ServiceRequest",
+      resourceType: "Service Request",
       resourceId: request._id.toString(),
       metadata: { planId: plan._id.toString() },
     });
@@ -84,28 +101,60 @@ export class ServiceRequestService {
 
   async listMine(ownerId: string): Promise<ServiceRequestWithDocuments[]> {
     const requests = await this.repository.listMine(ownerId);
-    return Promise.all(requests.map((request) => this.attachDocuments(request)));
+    return Promise.all(
+      requests.map((request) => this.attachDocuments(request)),
+    );
   }
 
-  async listAll(options: PageOptions, filters: { status?: ServiceRequestStatus; ownerId?: string; planId?: string; from?: Date; to?: Date; search?: string }): Promise<PaginatedResult<ServiceRequestWithDocuments>> {
+  async listAll(
+    options: PageOptions,
+    filters: {
+      status?: ServiceRequestStatus;
+      ownerId?: string;
+      planId?: string;
+      from?: Date;
+      to?: Date;
+      search?: string;
+    },
+  ): Promise<PaginatedResult<ServiceRequestWithDocuments>> {
     const [items, total] = await this.repository.listAll(options, filters);
-    return pageResult(await Promise.all(items.map((request) => this.attachDocuments(request))), total, options);
+
+    return pageResult(
+      await Promise.all(items.map((request) => this.attachDocuments(request))),
+      total,
+      options,
+    );
   }
 
-  private async attachDocuments(request: IServiceRequest): Promise<ServiceRequestWithDocuments> {
+  private async attachDocuments(
+    request: IServiceRequest,
+  ): Promise<ServiceRequestWithDocuments> {
+
     const documents = await this.repository.listDocuments(request._id);
-    const documentsWithUrls = await Promise.all(documents.map(async (document) => {
-      const result = await this.files.getFileById(document.file.toString());
-      return Object.assign(document.toObject(), { url: result.url, expiresIn: 900 }) as ServiceDocumentWithDownloadUrl;
-    }));
-    return Object.assign(request.toObject(), { documents: documentsWithUrls }) as ServiceRequestWithDocuments;
+
+    const documentsWithUrls = await Promise.all(
+      documents.map(async (document) => {
+        const result = await this.files.getFileById(document.file.toString());
+        return Object.assign(document.toObject(), {
+          url: result.url,
+          expiresIn: 900,
+        }) as ServiceDocumentWithDownloadUrl;
+      }),
+    );
+    
+    return Object.assign(request.toObject(), {
+      documents: documentsWithUrls,
+    }) as ServiceRequestWithDocuments;
   }
 
   async getForUser(
     requestId: string,
     userId: string,
     isAdmin: boolean,
-  ): Promise<{ request: IServiceRequest; documents: ServiceDocumentWithDownloadUrl[] }> {
+  ): Promise<{
+    request: IServiceRequest;
+    documents: ServiceDocumentWithDownloadUrl[];
+  }> {
     if (!Types.ObjectId.isValid(requestId))
       throw new BadRequestError("Invalid service request id");
 
@@ -123,7 +172,7 @@ export class ServiceRequestService {
       await this.audit.record({
         actorId: userId,
         action: "service_request.viewed_by_admin",
-        resourceType: "ServiceRequest",
+        resourceType: "Service Request",
         resourceId: request._id.toString(),
       });
     }
@@ -131,7 +180,11 @@ export class ServiceRequestService {
     return { request: enriched, documents: enriched.documents };
   }
 
-  async requestDocumentUpload(requestId: string, ownerId: string, dto: RequestServiceDocumentUploadDto) {
+  async requestDocumentUpload(
+    requestId: string,
+    ownerId: string,
+    dto: RequestServiceDocumentUploadDto,
+  ) {
     const request = await this.repository.findRequest({
       _id: requestId,
       owner: ownerId,
@@ -255,7 +308,7 @@ export class ServiceRequestService {
         action: replacedDocument
           ? "service_document.resubmitted"
           : "service_document.uploaded",
-        resourceType: "ServiceDocument",
+        resourceType: "Service Document",
         resourceId: document._id.toString(),
         metadata: {
           serviceRequestId: request._id.toString(),
@@ -298,7 +351,7 @@ export class ServiceRequestService {
       action: isAdmin
         ? "service_document.viewed_by_admin"
         : "service_document.viewed_by_owner",
-      resourceType: "ServiceDocument",
+      resourceType: "Service Document",
       resourceId: document._id.toString(),
     });
 
@@ -306,7 +359,7 @@ export class ServiceRequestService {
   }
 
   // Updates document verification and requests resubmission when needed.
-  async  verifyDocument(
+  async verifyDocument(
     requestId: string,
     documentId: string,
     adminId: string,
@@ -348,10 +401,16 @@ export class ServiceRequestService {
           : "A document for your service request needs to be replaced. Please review your request and upload a replacement.",
       });
     } else {
-      const currentDocuments = await this.repository.listCurrentDocuments(request._id);
-      const allDocumentsApproved = currentDocuments.length > 0 && currentDocuments.every(
-        (currentDocument) => currentDocument.verificationStatus === ServiceDocumentStatus.APPROVED,
+      const currentDocuments = await this.repository.listCurrentDocuments(
+        request._id,
       );
+      const allDocumentsApproved =
+        currentDocuments.length > 0 &&
+        currentDocuments.every(
+          (currentDocument) =>
+            currentDocument.verificationStatus ===
+            ServiceDocumentStatus.APPROVED,
+        );
 
       if (
         allDocumentsApproved &&
@@ -381,46 +440,86 @@ export class ServiceRequestService {
     return document;
   }
 
-  async updateStatus(requestId: string, adminId: string, dto: AdminRequestStatusDto): Promise<IServiceRequest> {
-    if (!Types.ObjectId.isValid(requestId)) throw new BadRequestError("Invalid service request id");
+  async updateStatus(
+    requestId: string,
+    adminId: string,
+    dto: AdminRequestStatusDto,
+  ): Promise<IServiceRequest> {
+    if (!Types.ObjectId.isValid(requestId))
+      throw new BadRequestError("Invalid service request id");
     const request = await this.repository.findRequestById(requestId);
     if (!request) throw new NotFoundError("Service request not found");
 
-    if (dto.status === ServiceRequestStatus.APPROVED && ![ServiceRequestStatus.DOCS_VERIFIED, ServiceRequestStatus.UNDER_REVIEW].includes(request.status)) {
-      throw new BadRequestError("Documents must be verified or the request under review before approval");
+    if (
+      dto.status === ServiceRequestStatus.APPROVED &&
+      ![
+        ServiceRequestStatus.DOCS_VERIFIED,
+        ServiceRequestStatus.UNDER_REVIEW,
+      ].includes(request.status)
+    ) {
+      throw new BadRequestError(
+        "Documents must be verified or the request under review before approval",
+      );
     }
     if (dto.status === ServiceRequestStatus.DOCS_VERIFIED) {
       const documents = await this.repository.listCurrentDocuments(request._id);
-      if (!documents.length || documents.some((doc) => doc.verificationStatus !== ServiceDocumentStatus.APPROVED)) {
-        throw new BadRequestError("At least one current document must exist and all current documents must be approved");
+      if (
+        !documents.length ||
+        documents.some(
+          (doc) => doc.verificationStatus !== ServiceDocumentStatus.APPROVED,
+        )
+      ) {
+        throw new BadRequestError(
+          "At least one current document must exist and all current documents must be approved",
+        );
       }
       request.verifiedAt = new Date();
     }
-    if (dto.status === ServiceRequestStatus.APPROVED) request.approvedAt = new Date();
-    if (dto.status === ServiceRequestStatus.REJECTED) { request.rejectionReason = dto.reason; request.rejectedAt = new Date(); }
-    if (dto.status === ServiceRequestStatus.MORE_INFO_REQUIRED) request.moreInfoReason = dto.reason;
+    if (dto.status === ServiceRequestStatus.APPROVED)
+      request.approvedAt = new Date();
+    if (dto.status === ServiceRequestStatus.REJECTED) {
+      request.rejectionReason = dto.reason;
+      request.rejectedAt = new Date();
+    }
+    if (dto.status === ServiceRequestStatus.MORE_INFO_REQUIRED)
+      request.moreInfoReason = dto.reason;
     request.status = dto.status;
     request.reviewedBy = new Types.ObjectId(adminId);
     await this.repository.saveRequest(request);
 
-    if (dto.status === ServiceRequestStatus.UNDER_REVIEW) await this.repository.setPlanStatus(request.plan, PlanStatus.UNDER_REVIEW);
-    if (dto.status === ServiceRequestStatus.APPROVED) await this.repository.setPlanStatus(request.plan, PlanStatus.APPROVED);
-    const notificationEvents: Partial<Record<ServiceRequestStatus, NotificationEvent>> = {
-      [ServiceRequestStatus.DOCS_VERIFIED]: NotificationEvent.SERVICE_DOCUMENTS_APPROVED,
-      [ServiceRequestStatus.APPROVED]: NotificationEvent.SERVICE_REQUEST_APPROVED,
-      [ServiceRequestStatus.REJECTED]: NotificationEvent.SERVICE_REQUEST_REJECTED,
-      [ServiceRequestStatus.MORE_INFO_REQUIRED]: NotificationEvent.SERVICE_MORE_INFO_REQUIRED,
+    if (dto.status === ServiceRequestStatus.UNDER_REVIEW)
+      await this.repository.setPlanStatus(
+        request.plan,
+        PlanStatus.UNDER_REVIEW,
+      );
+    if (dto.status === ServiceRequestStatus.APPROVED)
+      await this.repository.setPlanStatus(request.plan, PlanStatus.APPROVED);
+    const notificationEvents: Partial<
+      Record<ServiceRequestStatus, NotificationEvent>
+    > = {
+      [ServiceRequestStatus.DOCS_VERIFIED]:
+        NotificationEvent.SERVICE_DOCUMENTS_APPROVED,
+      [ServiceRequestStatus.APPROVED]:
+        NotificationEvent.SERVICE_REQUEST_APPROVED,
+      [ServiceRequestStatus.REJECTED]:
+        NotificationEvent.SERVICE_REQUEST_REJECTED,
+      [ServiceRequestStatus.MORE_INFO_REQUIRED]:
+        NotificationEvent.SERVICE_MORE_INFO_REQUIRED,
     };
     const notification = notificationEvents[dto.status];
     if (notification) {
-      const descriptions: Partial<Record<ServiceRequestStatus, { title: string; message: string }>> = {
+      const descriptions: Partial<
+        Record<ServiceRequestStatus, { title: string; message: string }>
+      > = {
         [ServiceRequestStatus.DOCS_VERIFIED]: {
           title: "Service request documents approved",
-          message: "Our team approved the documents for your service request. The request can now proceed to the next review step.",
+          message:
+            "Our team approved the documents for your service request. The request can now proceed to the next review step.",
         },
         [ServiceRequestStatus.APPROVED]: {
           title: "Service request approved",
-          message: "Your service request has been approved. Our team will contact you with the next steps.",
+          message:
+            "Your service request has been approved. Our team will contact you with the next steps.",
         },
         [ServiceRequestStatus.REJECTED]: {
           title: "Service request declined",
@@ -444,22 +543,48 @@ export class ServiceRequestService {
         message: copy?.message,
       });
     }
-    await this.audit.record({ actorId: adminId, action: `service_request.${dto.status.toLowerCase()}`, resourceType: "ServiceRequest", resourceId: request._id.toString(), metadata: dto.reason ? { reason: dto.reason } : undefined });
+    await this.audit.record({
+      actorId: adminId,
+      action: `service_request.${dto.status.toLowerCase()}`,
+      resourceType: "ServiceRequest",
+      resourceId: request._id.toString(),
+      metadata: dto.reason ? { reason: dto.reason } : undefined,
+    });
     return request;
   }
 
-  async assignPhotographer(requestId: string, adminId: string, dto: AssignPhotographerDto): Promise<IServiceRequest> {
-    if (!Types.ObjectId.isValid(requestId)) throw new BadRequestError("Invalid service request id");
+  async assignPhotographer(
+    requestId: string,
+    adminId: string,
+    dto: AssignPhotographerDto,
+  ): Promise<IServiceRequest> {
+    if (!Types.ObjectId.isValid(requestId))
+      throw new BadRequestError("Invalid service request id");
     const request = await this.repository.findRequestById(requestId);
     if (!request) throw new NotFoundError("Service request not found");
-    if (request.status !== ServiceRequestStatus.APPROVED) throw new BadRequestError("Only approved service requests can be closed by photographer assignment");
+    if (request.status !== ServiceRequestStatus.APPROVED)
+      throw new BadRequestError(
+        "Only approved service requests can be closed by photographer assignment",
+      );
     request.photographerName = dto.photographerName;
     request.photographerAssignedAt = new Date();
     request.status = ServiceRequestStatus.CLOSED;
     request.reviewedBy = new Types.ObjectId(adminId);
     await this.repository.saveRequest(request);
-    await this.audit.record({ actorId: adminId, action: "service_request.photographer_assigned", resourceType: "ServiceRequest", resourceId: request._id.toString(), metadata: { photographerName: dto.photographerName } });
-    await this.notifications.notifyUser({ userId: request.owner.toString(), event: NotificationEvent.SERVICE_PROVIDER_ASSIGNED, dedupeKey: `${request._id}:photographer:${request.photographerAssignedAt.getTime()}`, title: "Photographer assigned", message: `${dto.photographerName} has been assigned to your service request.` });
+    await this.audit.record({
+      actorId: adminId,
+      action: "service_request.photographer_assigned",
+      resourceType: "ServiceRequest",
+      resourceId: request._id.toString(),
+      metadata: { photographerName: dto.photographerName },
+    });
+    await this.notifications.notifyUser({
+      userId: request.owner.toString(),
+      event: NotificationEvent.SERVICE_PROVIDER_ASSIGNED,
+      dedupeKey: `${request._id}:photographer:${request.photographerAssignedAt.getTime()}`,
+      title: "Photographer assigned",
+      message: `${dto.photographerName} has been assigned to your service request.`,
+    });
     return request;
   }
 }

@@ -1639,9 +1639,172 @@ Returns a single contact submission. An invalid ID returns `400`; a valid ID wit
 
 ---
 
+## Audit Log
+
+All endpoints in this section require a bearer token and admin authorization (Admin or Super Admin).
+
+<details>
+<summary><strong>GET /audit-logs — List audit logs</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/audit-logs`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:**
+  - `page`: Page number (optional, default: `1`)
+  - `limit`: Number of records per page (optional, default: `20`, maximum: `100`)
+  - `startDate` or `from`: Filter logs created on or after date (`YYYY-MM-DD` or ISO date-time string)
+  - `endDate` or `to`: Filter logs created on or before date (`YYYY-MM-DD` or ISO date-time string)
+  - `action`: Filter by action name (optional)
+  - `resourceType`: Filter by resource type (optional)
+  - `resourceId`: Filter by target resource ID (optional)
+
+Returns a paginated list of system audit logs sorted newest first. Populates the `actor` with `name`, `email`, and `role`.
+
+### Example
+
+```text
+GET /api/v1/audit-logs?page=1&limit=20
+```
+
+### Example with date range filter
+
+```text
+GET /api/v1/audit-logs?startDate=2026-10-01&endDate=2026-10-31&page=1&limit=20
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Audit logs retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "_id": "66f123456789012345678901",
+        "actor": {
+          "_id": "66f123456789012345678902",
+          "name": "Jane Admin",
+          "email": "admin@example.com",
+          "role": "Admin"
+        },
+        "action": "service_request.approved",
+        "resourceType": "ServiceRequest",
+        "resourceId": "66f123456789012345678903",
+        "metadata": {
+          "reason": "All documents verified"
+        },
+        "createdAt": "2026-11-04T12:00:00.000Z",
+        "updatedAt": "2026-11-04T12:00:00.000Z",
+        "__v": 0
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "totalPages": 1,
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>GET /audit-logs/:id — Get one audit log</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/audit-logs/:id`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+
+Returns a single audit log by its ID. Populates the `actor` with `name`, `email`, and `role`. An invalid ID returns `400`; a valid ID with no matching log returns `404`.
+
+### Example
+
+```text
+GET /api/v1/audit-logs/66f123456789012345678901
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Audit log retrieved successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "actor": {
+      "_id": "66f123456789012345678902",
+      "name": "Jane Admin",
+      "email": "admin@example.com",
+      "role": "Admin"
+    },
+    "action": "service_request.approved",
+    "resourceType": "ServiceRequest",
+    "resourceId": "66f123456789012345678903",
+    "metadata": {
+      "reason": "All documents verified"
+    },
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>DELETE /audit-logs/:id — Delete an audit log</strong></summary>
+
+- **Method:** `DELETE`
+- **URL:** `/api/v1/audit-logs/:id`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+
+Permanently removes an audit log record by its ID. An invalid ID returns `400`; a valid ID with no matching log returns `404`.
+
+### Example
+
+```text
+DELETE /api/v1/audit-logs/66f123456789012345678901
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Audit log deleted successfully",
+  "data": {
+    "_id": "66f123456789012345678901",
+    "actor": "66f123456789012345678902",
+    "action": "service_request.approved",
+    "resourceType": "ServiceRequest",
+    "resourceId": "66f123456789012345678903",
+    "metadata": {
+      "reason": "All documents verified"
+    },
+    "createdAt": "2026-11-04T12:00:00.000Z",
+    "updatedAt": "2026-11-04T12:00:00.000Z",
+    "__v": 0
+  }
+}
+```
+
+</details>
+
+---
+
 ## Admin endpoints
 
 All endpoints in this section require a bearer token and an admin or super-admin role. Monetary values are stored and returned in minor units (`1500000` means ₦15,000).
+
 
 <details>
 <summary><strong>GET /admin/overview — Operations dashboard overview</strong></summary>

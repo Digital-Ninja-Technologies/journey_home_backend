@@ -8,6 +8,7 @@ import serviceRequestRoutes from "../../modules/service-requests/routes/service-
 import subscriptionRoutes from "../../modules/subscriptions/routes/subscription.routes";
 import adminRoutes from "../../modules/admin/admin.routes";
 import contactRoutes from "../../modules/contact/routes/contact.routes";
+import auditLogRoutes from "../../modules/audit/routes/audit-log.routes";
 
 const router = Router();
 
@@ -30,5 +31,7 @@ router.use("/subscriptions", subscriptionRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/service-requests", serviceRequestRoutes);
 router.use("/contact", contactRoutes);
+router.use("/audit-logs", auditLogRoutes);
+
 
 export default router;
