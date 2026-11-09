@@ -56,6 +56,16 @@ export class PaymentRepository {
     }).exec();
   }
 
+  findLatestInitialPayment(plan: Types.ObjectId | string, owner: Types.ObjectId | string) {
+    return Payment.findOne({
+      plan,
+      owner,
+      purpose: PaymentPurpose.INITIAL,
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
   createPayment(data: Partial<IPayment>) {
     return Payment.create(data);
   }

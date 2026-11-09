@@ -23,6 +23,7 @@ import {
   PaginatedResult,
 } from "../../../common/utils/pagination";
 import { env } from "@/config/application";
+import { addOneMonthPreservingBillingDay } from "../../plans/services/date.service";
 
 interface PaystackWebhookPayload {
   event: string;
@@ -59,9 +60,31 @@ export class PaymentService {
     authorizationUrl: string;
     accessCode: string;
     reference: string;
+    alreadyPaid?: boolean;
   }> {
     const plan = await this.repository.findPlanForOwner(planId, ownerId);
     if (!plan) throw new NotFoundError("Plan not found");
+
+    const existingPayment = await this.repository.findLatestInitialPayment(
+      plan._id,
+      ownerId,
+    );
+
+    // If the plan is already active or existing payment is already successful, return early
+    if (
+      plan.status === PlanStatus.ACTIVE ||
+      existingPayment?.status === PaymentStatus.SUCCESSFUL
+    ) {
+      if (existingPayment) {
+        return {
+          payment: existingPayment,
+          authorizationUrl: "",
+          accessCode: "",
+          reference: existingPayment.reference,
+          alreadyPaid: true,
+        };
+      }
+    }
 
     // Only pending plans can start their initial payment checkout.
     if (plan.status !== PlanStatus.PENDING) {
@@ -81,17 +104,6 @@ export class PaymentService {
       throw new BadRequestError("Package is not configured for subscriptions");
     const subscriptions = new SubscriptionRepository();
 
-    // const otherPending = await subscriptions.findOtherPendingForOwnerPlanCode(
-    //   ownerId,
-    //   pkg.paystackPlanCode,
-    //   plan._id,
-    // );
-
-    // if (otherPending)
-    //   throw new ConflictError(
-    //     "Complete the existing checkout for this package before starting another plan checkout",
-    //   );
-
     let subscription = await subscriptions.findByPlan(plan._id);
 
     if (!subscription)
@@ -110,23 +122,72 @@ export class PaymentService {
       await subscription.save();
     }
 
-    // Reuse an existing initial payment when available to avoid creating unnecessary records.
-    let payment = await this.repository.findReusableInitial(plan._id, ownerId);
-    const newOwnerId = new Types.ObjectId(ownerId);
+    // If an unpaid payment record already exists, check Paystack and reuse if still valid
+    if (existingPayment) {
+      const refToCheck =
+        existingPayment.providerReference || existingPayment.reference;
+      if (refToCheck) {
+        try {
+          const providerData = await new PaystackService().verifyTransaction(
+            refToCheck,
+          );
+          if (providerData.status === "success") {
+            const applied = await this.applyProviderTransaction(providerData);
+            return {
+              payment: applied,
+              authorizationUrl: "",
+              accessCode: "",
+              reference: applied.reference,
+              alreadyPaid: true,
+            };
+          }
+          if (providerData.status === "failed") {
+            existingPayment.status = PaymentStatus.FAILED;
+            existingPayment.failureMessage =
+              providerData.gateway_response || "Payment failed";
+            await existingPayment.save();
+          }
+        } catch {
+          // If Paystack lookup fails (e.g. temporary timeout), proceed with saved checkout details
+        }
+      }
 
-    if (!payment) {
-      payment = await this.repository.createPayment({
-        owner: newOwnerId,
-        plan: plan._id,
-        amount: plan.amount,
-        currency: plan.currency,
-        reference: this.reference("jh_init"),
-        providerReference: undefined,
-        provider: PaymentProvider.PAYSTACK,
-        purpose: PaymentPurpose.INITIAL,
-        status: PaymentStatus.PENDING,
-      });
+      // If existing payment is still valid and has a saved checkout URL, reuse it
+      const savedAuthUrl = existingPayment.metadata?.authorizationUrl as
+        | string
+        | undefined;
+
+      const savedAccessCode =
+        (existingPayment.metadata?.accessCode as string | undefined) || "";
+
+      if (existingPayment.status !== PaymentStatus.FAILED && savedAuthUrl) {
+        return {
+          payment: existingPayment,
+          authorizationUrl: savedAuthUrl,
+          accessCode: savedAccessCode,
+          reference:
+            existingPayment.providerReference || existingPayment.reference,
+          alreadyPaid: false,
+        };
+      }
     }
+
+    // Reuse existing record if it is PENDING without an authorizationUrl, otherwise create a new record
+    const newOwnerId = new Types.ObjectId(ownerId);
+    let payment =
+      existingPayment && existingPayment.status === PaymentStatus.PENDING
+        ? existingPayment
+        : await this.repository.createPayment({
+            owner: newOwnerId,
+            plan: plan._id,
+            amount: plan.amount,
+            currency: plan.currency,
+            reference: this.reference("jh_init"),
+            providerReference: undefined,
+            provider: PaymentProvider.PAYSTACK,
+            purpose: PaymentPurpose.INITIAL,
+            status: PaymentStatus.PENDING,
+          });
 
     // Initialize checkout with Paystack and associate the transaction with the plan and payment.
     const initialized = await new PaystackService().initializeTransaction({
@@ -143,20 +204,32 @@ export class PaymentService {
       },
     });
 
+    const metadata = {
+      ...(payment.metadata || {}),
+      planId: plan._id.toString(),
+      paymentId: payment._id.toString(),
+      purpose: payment.purpose,
+      authorizationUrl: initialized.authorization_url,
+      accessCode: initialized.access_code,
+    };
+
     await this.repository.updatePayment(payment._id, {
       $set: {
         providerReference: initialized.reference,
         status: PaymentStatus.PROCESSING,
+        metadata,
       },
     });
     payment.providerReference = initialized.reference;
     payment.status = PaymentStatus.PROCESSING;
+    payment.metadata = metadata;
 
     return {
       payment,
       authorizationUrl: initialized.authorization_url,
       accessCode: initialized.access_code,
       reference: initialized.reference,
+      alreadyPaid: false,
     };
   }
 
@@ -216,7 +289,10 @@ export class PaymentService {
 
         current.processedAt = new Date();
 
-        current.metadata = { providerStatus: providerData.status };
+        current.metadata = {
+          ...(current.metadata || {}),
+          providerStatus: providerData.status,
+        };
 
         await this.repository.savePayment(current, session);
 
@@ -227,18 +303,27 @@ export class PaymentService {
           );
           if (!plan) throw new NotFoundError("Plan not found");
 
-          // Payment success activates the business plan. Paystack's subscription event supplies its schedule.
+          const paymentDate = current.processedAt || new Date();
+          const nextPaymentDate = addOneMonthPreservingBillingDay(paymentDate);
+
+          // Payment success activates the business plan and sets the next scheduled billing date.
           await this.repository.updatePlanAfterPayment(
             plan._id,
             current.amount,
-            undefined,
+            nextPaymentDate,
             session,
           );
 
           const sub = await subscriptions.findByPlan(current.plan);
 
-          if (sub && sub.status === SubscriptionStatus.ACTIVE) {
+          if (sub) {
+            if (sub.status === SubscriptionStatus.PENDING) {
+              sub.status = SubscriptionStatus.ACTIVE;
+            }
             sub.lastPaymentAt = new Date();
+            if (!sub.nextPaymentDate) {
+              sub.nextPaymentDate = nextPaymentDate;
+            }
             await sub.save({ session });
           }
         }

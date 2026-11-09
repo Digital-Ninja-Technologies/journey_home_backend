@@ -11,6 +11,20 @@ export class PaymentController {
   initializeInitial = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const result = await this.service.initializeInitialCheckout(String(req.params.planId), req.user!.userId);
+      if (result.alreadyPaid) {
+        successResponse(
+          res,
+          "Plan payment has already been completed",
+          {
+            paymentId: result.payment._id,
+            reference: result.reference,
+            status: result.payment.status,
+            alreadyPaid: true,
+          },
+          200,
+        );
+        return;
+      }
       successResponse(res, "Checkout initialized successfully", {
         paymentId: result.payment._id,
         reference: result.reference,
