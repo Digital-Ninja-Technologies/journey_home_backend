@@ -216,12 +216,12 @@ export class PaymentService {
     await this.repository.updatePayment(payment._id, {
       $set: {
         providerReference: initialized.reference,
-        status: PaymentStatus.PROCESSING,
+        status: PaymentStatus.PENDING,
         metadata,
       },
     });
     payment.providerReference = initialized.reference;
-    payment.status = PaymentStatus.PROCESSING;
+    payment.status = PaymentStatus.PENDING;
     payment.metadata = metadata;
 
     return {
