@@ -9,12 +9,20 @@ import { IContactSubmission } from "../models/contact.model";
 import { Types } from "mongoose";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
+import { NotificationService } from "../../notifications/services/notification.service";
+import { NotificationEvent } from "../../notifications/models/notification.model";
 
 export class ContactService {
   private repository = new ContactRepository();
 
-  create(dto: CreateContactSubmissionDto): Promise<IContactSubmission> {
-    return this.repository.create({ ...dto, email: dto.email.toLowerCase() });
+  async create(dto: CreateContactSubmissionDto): Promise<IContactSubmission> {
+    const submission = await this.repository.create({ ...dto, email: dto.email.toLowerCase() });
+    await new NotificationService().notifyAdmins({
+      event: NotificationEvent.ADMIN_CONTACT_SUBMITTED,
+      dedupeKey: `${submission._id}:admin:submitted`,
+      message: `${submission.name} sent a contact message about ${submission.topic}.`,
+    });
+    return submission;
   }
 
   async listAll(options: PageOptions, search?: string): Promise<PaginatedResult<IContactSubmission>> {

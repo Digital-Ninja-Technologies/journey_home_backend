@@ -8,6 +8,7 @@ import {
   LoginDto,
   SignupDto,
 } from "../dto/auth.dto";
+import type { UpdateProfileDto } from "../validators/auth.validator";
 import { UnauthorizedError } from "../../../common/errors/UnauthorizedError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { ConflictError } from "../../../common/errors/ConflictError";
@@ -231,6 +232,7 @@ export class AuthService {
       id: user._id,
       email: user.email,
       name: user.name,
+      phoneNumber: user.phoneNumber,
       role: user.role,
       isSuperAdmin: user.isSuperAdmin,
       isEmailVerified: user.isEmailVerified,
@@ -238,6 +240,15 @@ export class AuthService {
       updatedAt: user.updatedAt,
       notificationPreferences: user.notificationPreferences,
     };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const updates: Partial<IUser> = {};
+    if (dto.name !== undefined) updates.name = dto.name;
+    if (dto.phoneNumber !== undefined) updates.phoneNumber = dto.phoneNumber;
+    const user = await this.userRepo.update(userId, updates);
+    if (!user) throw new NotFoundError("User not found");
+    return this.getProfile(userId);
   }
 
   async updateNotificationPreferences(userId: string, preferences: IUser["notificationPreferences"]) {

@@ -74,6 +74,11 @@ export class PlanService {
         title: "Plan created",
         message: `Your ${packageDetails.name} plan for ${dto.coveredPerson.fullName} has been created. Complete the initial contribution to activate coverage.`,
       });
+      await new NotificationService().notifyAdmins({
+        event: NotificationEvent.ADMIN_PLAN_CREATED,
+        dedupeKey: `${plan._id}:admin:created`,
+        message: `A new ${packageDetails.name} plan was created for ${dto.coveredPerson.fullName}.`,
+      });
       return plan;
     } finally {
       // release the database session

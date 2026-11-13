@@ -40,6 +40,7 @@ export interface IServiceRequest extends Document {
   verifiedAt?: Date;
   approvedAt?: Date;
   photographerName?: string;
+  photographerPhoneNo?: string;
   photographerAssignedAt?: Date;
   rejectedAt?: Date;
   resubmittedAt?: Date;
@@ -113,6 +114,7 @@ const ServiceRequestSchema = new Schema<IServiceRequest>(
     verifiedAt: { type: Date },
     approvedAt: { type: Date },
     photographerName: { type: String, trim: true },
+    photographerPhoneNo : {type: String, trim : true},
     photographerAssignedAt: { type: Date },
     rejectedAt: { type: Date },
     resubmittedAt: { type: Date },

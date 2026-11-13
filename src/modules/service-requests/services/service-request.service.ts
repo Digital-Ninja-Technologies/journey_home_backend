@@ -95,6 +95,11 @@ export class ServiceRequestService {
       title: "Service request received",
       message: `We received your service request for ${request.coveredPersonSnapshot.fullName}. Our team will review your request and uploaded documents.`,
     });
+    await this.notifications.notifyAdmins({
+      event: NotificationEvent.ADMIN_SERVICE_REQUEST_CREATED,
+      dedupeKey: `${request._id}:admin:created`,
+      message: `A service request was submitted for ${request.coveredPersonSnapshot.fullName}.`,
+    });
 
     return request;
   }
@@ -129,7 +134,6 @@ export class ServiceRequestService {
   private async attachDocuments(
     request: IServiceRequest,
   ): Promise<ServiceRequestWithDocuments> {
-
     const documents = await this.repository.listDocuments(request._id);
 
     const documentsWithUrls = await Promise.all(
@@ -141,7 +145,7 @@ export class ServiceRequestService {
         }) as ServiceDocumentWithDownloadUrl;
       }),
     );
-    
+
     return Object.assign(request.toObject(), {
       documents: documentsWithUrls,
     }) as ServiceRequestWithDocuments;
@@ -314,6 +318,12 @@ export class ServiceRequestService {
           serviceRequestId: request._id.toString(),
           documentType: dto.documentType,
         },
+      });
+
+      await this.notifications.notifyAdmins({
+        event: NotificationEvent.ADMIN_SERVICE_DOCUMENT_SUBMITTED,
+        dedupeKey: `${document._id}:admin:submitted`,
+        message: `A ${dto.documentType.replace(/_/g, " ")} was submitted for service request ${request._id.toString()}.`,
       });
 
       return document;
@@ -558,26 +568,37 @@ export class ServiceRequestService {
     adminId: string,
     dto: AssignPhotographerDto,
   ): Promise<IServiceRequest> {
+
     if (!Types.ObjectId.isValid(requestId))
       throw new BadRequestError("Invalid service request id");
+
     const request = await this.repository.findRequestById(requestId);
     if (!request) throw new NotFoundError("Service request not found");
+
     if (request.status !== ServiceRequestStatus.APPROVED)
       throw new BadRequestError(
         "Only approved service requests can be closed by photographer assignment",
       );
+    
     request.photographerName = dto.photographerName;
+    request.photographerPhoneNo = dto.photographerPhoneNo;
     request.photographerAssignedAt = new Date();
     request.status = ServiceRequestStatus.CLOSED;
     request.reviewedBy = new Types.ObjectId(adminId);
+
     await this.repository.saveRequest(request);
+
     await this.audit.record({
       actorId: adminId,
       action: "service_request.photographer_assigned",
       resourceType: "ServiceRequest",
       resourceId: request._id.toString(),
-      metadata: { photographerName: dto.photographerName },
+      metadata: {
+        photographerName: dto.photographerName,
+        photographerPhoneNo: dto.photographerPhoneNo
+       },
     });
+
     await this.notifications.notifyUser({
       userId: request.owner.toString(),
       event: NotificationEvent.SERVICE_PROVIDER_ASSIGNED,

@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import { PageOptions, escapeRegex } from "../../../common/utils/pagination";
-import { User } from "../../auth/models/auth.model";
+import { User, UserRole } from "../../auth/models/auth.model";
 import {
   INotification,
   Notification,
@@ -12,6 +12,7 @@ export interface NotificationFilters {
   isRead?: boolean;
   from?: Date;
   to?: Date;
+  events?: NotificationEvent[];
 }
 
 export class NotificationRepository {
@@ -21,6 +22,16 @@ export class NotificationRepository {
   }
   findUserContact(userId: string) {
     return User.findById(userId).select("email name").lean();
+  }
+
+  async findAdminIds(): Promise<string[]> {
+    const admins = await User.find({
+      $or: [
+        { role: { $in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] } },
+        { isSuperAdmin: true },
+      ],
+    }).select("_id").lean();
+    return admins.map((admin) => admin._id.toString());
   }
 
   findByDedupeKey(dedupeKey: string) {
@@ -59,13 +70,15 @@ export class NotificationRepository {
     if (filters.title)
       query.title = { $regex: escapeRegex(filters.title), $options: "i" };
     if (filters.isRead !== undefined) query.isRead = filters.isRead;
+    if (filters.events) query.event = { $in: filters.events };
     if (filters.from || filters.to) {
       query.createdAt = {
         ...(filters.from ? { $gte: filters.from } : {}),
         ...(filters.to ? { $lte: filters.to } : {}),
       };
     }
-    const ownerQuery = { userId: new Types.ObjectId(userId) };
+    const ownerQuery: Record<string, unknown> = { userId: new Types.ObjectId(userId) };
+    if (filters.events) ownerQuery.event = { $in: filters.events };
     const [items, filteredTotal, totalNotifications, totalUnreadNotifications] =
       await Promise.all([
         Notification.find(query)

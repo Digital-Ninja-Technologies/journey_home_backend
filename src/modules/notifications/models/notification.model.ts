@@ -20,12 +20,23 @@ export enum NotificationEvent {
   SERVICE_SCHEDULED = "ServiceScheduled",
   SERVICE_COMPLETED = "ServiceCompleted",
   PRODUCT_NEWS_OFFERS = "ProductNewsOffers",
+  ADMIN_PLAN_CREATED = "AdminPlanCreated",
+  ADMIN_SERVICE_REQUEST_CREATED = "AdminServiceRequestCreated",
+  ADMIN_SERVICE_DOCUMENT_SUBMITTED = "AdminServiceDocumentSubmitted",
+  ADMIN_CONTACT_SUBMITTED = "AdminContactSubmitted",
 }
 
 export enum NotificationChannel {
   IN_APP = "in_app",
   EMAIL = "email",
 }
+
+export const ADMIN_NOTIFICATION_EVENTS: NotificationEvent[] = [
+  NotificationEvent.ADMIN_PLAN_CREATED,
+  NotificationEvent.ADMIN_SERVICE_REQUEST_CREATED,
+  NotificationEvent.ADMIN_SERVICE_DOCUMENT_SUBMITTED,
+  NotificationEvent.ADMIN_CONTACT_SUBMITTED,
+];
 
 export interface INotification extends Document {
   userId: Types.ObjectId;
