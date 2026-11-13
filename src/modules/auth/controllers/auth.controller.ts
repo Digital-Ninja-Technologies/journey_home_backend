@@ -89,6 +89,11 @@ export class AuthController {
     catch (error) { next(error); }
   };
 
+  updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try { successResponse(res, "User profile updated successfully", await this.authService.updateProfile(req.user!.userId, req.body)); }
+    catch (error) { next(error); }
+  };
+
   verifyEmail = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try { successResponse(res, "Email verified successfully", await this.authService.verifyEmail(req.body.token)); }
     catch (error) { next(error); }

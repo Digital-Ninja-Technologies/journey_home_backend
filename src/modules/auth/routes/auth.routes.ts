@@ -17,6 +17,7 @@ import {
   PasswordResetValidator,
   NotificationPreferencesValidator,
   CloseAccountValidator,
+  UpdateProfileValidator,
 } from "../validators/auth.validator";
 
 const router = Router();
@@ -57,6 +58,7 @@ router.post(
 );
 
 router.get("/me", authRequired, authController.getProfile);
+router.patch("/me", authRequired, validate(UpdateProfileValidator), authController.updateProfile);
 router.patch(
   "/notification-preferences",
   authRequired,

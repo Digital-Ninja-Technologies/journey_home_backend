@@ -8,7 +8,7 @@ import {
 } from "../../../common/utils/pagination";
 import { Types } from "mongoose";
 import { notificationEmailTemplate } from "../../auth/templates/notification-email.template";
-import { NotificationEvent, INotification } from "../models/notification.model";
+import { NotificationEvent, INotification, ADMIN_NOTIFICATION_EVENTS } from "../models/notification.model";
 import {
   NotificationFilters,
   NotificationRepository,
@@ -117,7 +117,26 @@ const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
       message:
         "Your requested service has been marked complete. Contact support if you need any follow-up.",
     },
-    [NotificationEvent.PRODUCT_NEWS_OFFERS]: { title: "Product news and offers", message: "See the latest Journey Home packages and features." },
+    [NotificationEvent.PRODUCT_NEWS_OFFERS]: {
+      title: "Product news and offers",
+      message: "See the latest Journey Home packages and features.",
+    },
+    [NotificationEvent.ADMIN_PLAN_CREATED]: {
+      title: "New plan created",
+      message: "A new plan has been created on the platform.",
+    },
+    [NotificationEvent.ADMIN_SERVICE_REQUEST_CREATED]: {
+      title: "New service request",
+      message: "A user just requested a service",
+    },
+    [NotificationEvent.ADMIN_SERVICE_DOCUMENT_SUBMITTED]: {
+      title: "Service document submitted",
+      message: "A document has been submitted for a service request.",
+    },
+    [NotificationEvent.ADMIN_CONTACT_SUBMITTED]: {
+      title: "New contact message",
+      message: "A new contact message has been received",
+    },
   };
 
 export class NotificationService {
@@ -126,11 +145,34 @@ export class NotificationService {
   async sendEmailNotification(content: NotificationContent): Promise<boolean> {
     const user = await this.repository.findUserContact(content.userId);
     if (!user?.email) return false;
-    const preferenceRecord = await this.repository.getUserPreferences(content.userId);
+    const preferenceRecord = await this.repository.getUserPreferences(
+      content.userId,
+    );
     const prefs = preferenceRecord?.notificationPreferences;
-    const paymentEvents = [NotificationEvent.UPCOMING_CONTRIBUTION, NotificationEvent.INITIAL_PAYMENT_SUCCESS, NotificationEvent.INITIAL_PAYMENT_FAILURE, NotificationEvent.RECURRING_PAYMENT_SUCCESS, NotificationEvent.RECURRING_PAYMENT_FAILURE, NotificationEvent.PAYMENT_OVERDUE, NotificationEvent.GRACE_PERIOD_STARTED, NotificationEvent.PAYMENT_RECOVERY_SUCCESS];
-    const serviceEvents = Object.values(NotificationEvent).filter(event => event.startsWith("Service"));
-    if (prefs && ((paymentEvents.includes(content.event) && !prefs.paymentReminders) || (content.event === NotificationEvent.PAYMENT_OVERDUE && !prefs.deficitAlerts) || (serviceEvents.includes(content.event) && !prefs.serviceRequestUpdates) || (content.event === NotificationEvent.PRODUCT_NEWS_OFFERS && !prefs.productNewsOffers))) return false;
+    const paymentEvents = [
+      NotificationEvent.UPCOMING_CONTRIBUTION,
+      NotificationEvent.INITIAL_PAYMENT_SUCCESS,
+      NotificationEvent.INITIAL_PAYMENT_FAILURE,
+      NotificationEvent.RECURRING_PAYMENT_SUCCESS,
+      NotificationEvent.RECURRING_PAYMENT_FAILURE,
+      NotificationEvent.PAYMENT_OVERDUE,
+      NotificationEvent.GRACE_PERIOD_STARTED,
+      NotificationEvent.PAYMENT_RECOVERY_SUCCESS,
+    ];
+    const serviceEvents = Object.values(NotificationEvent).filter((event) =>
+      event.startsWith("Service"),
+    );
+    if (
+      prefs &&
+      ((paymentEvents.includes(content.event) && !prefs.paymentReminders) ||
+        (content.event === NotificationEvent.PAYMENT_OVERDUE &&
+          !prefs.deficitAlerts) ||
+        (serviceEvents.includes(content.event) &&
+          !prefs.serviceRequestUpdates) ||
+        (content.event === NotificationEvent.PRODUCT_NEWS_OFFERS &&
+          !prefs.productNewsOffers))
+    )
+      return false;
     const { title, message } = this.resolveContent(content);
     return new EmailService().sendEmail(
       user.email,
@@ -167,6 +209,15 @@ export class NotificationService {
     return this.createInAppNotification(content);
   }
 
+  async notifyAdmins(content: Omit<NotificationContent, "userId">): Promise<void> {
+    const adminIds = await this.repository.findAdminIds();
+    await Promise.all(adminIds.map((adminId) => this.createInAppNotification({
+      ...content,
+      userId: adminId,
+      dedupeKey: `${content.dedupeKey}:${adminId}`,
+    })));
+  }
+
   async listForOwner(
     userId: string,
     options: PageOptions,
@@ -182,8 +233,25 @@ export class NotificationService {
     };
   }
 
-  async markRead(id: string, userId: string): Promise<INotification | null> {
+  async listAdminNotifications(
+    userId: string,
+    options: PageOptions,
+    filters: Omit<NotificationFilters, "events">,
+  ): Promise<NotificationListResult> {
+    const result = await this.repository.listForOwner(userId, options, {
+      ...filters,
+      events: ADMIN_NOTIFICATION_EVENTS,
+    });
+    return {
+      ...pageResult(result.items, result.filteredTotal, options),
+      counts: {
+        totalNotifications: result.totalNotifications,
+        totalUnreadNotifications: result.totalUnreadNotifications,
+      },
+    };
+  }
 
+  async markRead(id: string, userId: string): Promise<INotification | null> {
     if (!Types.ObjectId.isValid(id))
       throw new BadRequestError("Invalid notification id");
 
@@ -195,15 +263,13 @@ export class NotificationService {
   }
 
   async delete(id: string, userId: string): Promise<INotification | null> {
-
     if (!Types.ObjectId.isValid(id))
-
       throw new BadRequestError("Invalid notification id");
-    
+
     const notification = await this.repository.deleteForOwner(id, userId);
 
     if (!notification) throw new NotFoundError("Notification not found");
-    
+
     return notification;
   }
 
