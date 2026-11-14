@@ -7,3 +7,4 @@
 5. test payment webhook receipt from paystack
 6. test recurring payment
 7. test that one week payment reminder emails are sent  
+8. edit plans or packages

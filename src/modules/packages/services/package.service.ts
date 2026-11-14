@@ -119,37 +119,65 @@ export class PackageService {
 
     if (!current) throw new NotFoundError("Package not found");
 
-    const commercialChange =
-      (dto.amount !== undefined && dto.amount !== current.amount) ||
-      (dto.currency !== undefined &&
-        dto.currency.toUpperCase() !== current.currency) ||
-      (dto.billingInterval !== undefined &&
-        dto.billingInterval !== current.billingInterval);
+    // Package amounts arrive in major currency units, while MongoDB and Paystack store minor units.
+    const nextAmount =
+      dto.amount === undefined ? current.amount : dto.amount * 100;
+    const nextCurrency = (dto.currency ?? current.currency).toUpperCase();
+    const nextName = dto.name ?? current.name;
+    const nextDescription = dto.description ?? current.description;
+    const nextInterval = dto.billingInterval ?? current.billingInterval;
+
+    // These are the fields represented by a Paystack plan. Features and isActive remain local package settings.
+    const paystackPlanChanged =
+      nextName !== current.name ||
+      nextDescription !== current.description ||
+      nextAmount !== current.amount ||
+      nextCurrency !== current.currency ||
+      nextInterval !== current.billingInterval;
 
     let providerFields: Partial<IJourneyPackage> = {};
 
-    if (commercialChange) {
-      const providerPlan = await new PaystackService().createPlan({
-        name: dto.name || current.name,
-      amount: dto.amount === undefined ? current.amount : dto.amount * 100,
+    if (paystackPlanChanged) {
+      const paystack = new PaystackService();
+      if (current.paystackPlanCode) {
+        // Update the existing Paystack plan; existing subscriptions retain their current terms.
+        await paystack.updatePlan(current.paystackPlanCode, {
+          name: nextName,
+          amount: nextAmount,
+          currency: nextCurrency,
+          interval: nextInterval,
+          description: nextDescription,
+          update_existing_subscriptions: false,
+        });
 
-        currency: (dto.currency || current.currency).toUpperCase(),
+        // The update endpoint returns no plan object, so mirror the requested values in local sync metadata.
+        providerFields = {
+          paystackPlanStatus: "ready",
+          paystackPlanAmount: nextAmount,
+          paystackPlanCurrency: nextCurrency,
+          paystackPlanInterval: nextInterval,
+          paystackPlanSyncedAt: new Date(),
+        };
+      } else {
+        // Older packages without a Paystack code need one initial plan created before future edits can update it.
+        const providerPlan = await paystack.createPlan({
+          name: nextName,
+          amount: nextAmount,
+          currency: nextCurrency,
+          interval: nextInterval,
+          description: nextDescription,
+        });
 
-        interval: dto.billingInterval || current.billingInterval,
-
-        description: dto.description || current.description,
-      });
-
-      providerFields = {
-        paystackPlanCode: providerPlan.plan_code,
-        paystackPlanStatus: "ready",
-
-        paystackPlanId: providerPlan.id,
-        paystackPlanAmount: providerPlan.amount,
-        paystackPlanCurrency: providerPlan.currency,
-        paystackPlanInterval: providerPlan.interval,
-        paystackPlanSyncedAt: new Date(),
-      };
+        providerFields = {
+          paystackPlanCode: providerPlan.plan_code,
+          paystackPlanStatus: "ready",
+          paystackPlanId: providerPlan.id,
+          paystackPlanAmount: providerPlan.amount,
+          paystackPlanCurrency: providerPlan.currency,
+          paystackPlanInterval: providerPlan.interval,
+          paystackPlanSyncedAt: new Date(),
+        };
+      }
     }
     const pkg = await this.repository.update(id, {
       ...dto,
@@ -170,23 +198,46 @@ export class PackageService {
 
     if (!pkg) throw new NotFoundError("Package not found");
 
-    const providerPlan = await new PaystackService().createPlan({
-      name: pkg.name,
-      amount: pkg.amount,
-      currency: pkg.currency,
-      interval: pkg.billingInterval,
-      description: pkg.description,
-    });
+    const paystack = new PaystackService();
+    let providerFields: Partial<IJourneyPackage>;
+    if (pkg.paystackPlanCode) {
+      // A manual sync updates the linked plan too, avoiding a second Paystack plan for the same package.
+      await paystack.updatePlan(pkg.paystackPlanCode, {
+        name: pkg.name,
+        amount: pkg.amount,
+        currency: pkg.currency,
+        interval: pkg.billingInterval,
+        description: pkg.description,
+        update_existing_subscriptions: false,
+      });
+      providerFields = {
+        paystackPlanAmount: pkg.amount,
+        paystackPlanCurrency: pkg.currency,
+        paystackPlanInterval: pkg.billingInterval,
+        paystackPlanSyncedAt: new Date(),
+        paystackPlanStatus: "ready",
+      };
+    } else {
+      // Create a provider plan only when this package has never been linked to one.
+      const providerPlan = await paystack.createPlan({
+        name: pkg.name,
+        amount: pkg.amount,
+        currency: pkg.currency,
+        interval: pkg.billingInterval,
+        description: pkg.description,
+      });
+      providerFields = {
+        paystackPlanCode: providerPlan.plan_code,
+        paystackPlanId: providerPlan.id,
+        paystackPlanAmount: providerPlan.amount,
+        paystackPlanCurrency: providerPlan.currency,
+        paystackPlanInterval: providerPlan.interval,
+        paystackPlanSyncedAt: new Date(),
+        paystackPlanStatus: "ready",
+      };
+    }
 
-    const updated = await this.repository.update(id, {
-      paystackPlanCode: providerPlan.plan_code,
-      paystackPlanId: providerPlan.id,
-      paystackPlanAmount: providerPlan.amount,
-      paystackPlanCurrency: providerPlan.currency,
-      paystackPlanInterval: providerPlan.interval,
-      paystackPlanSyncedAt: new Date(),
-      paystackPlanStatus: "ready",
-    });
+    const updated = await this.repository.update(id, providerFields);
     if (!updated) throw new NotFoundError("Package not found");
     return updated;
   }

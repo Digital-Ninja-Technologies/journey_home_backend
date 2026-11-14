@@ -168,6 +168,23 @@ export class PaystackService {
     );
   }
 
+  async updatePlan(
+    planCode: string,
+    payload: {
+      name: string;
+      amount: number;
+      currency: string;
+      interval: string;
+      description?: string;
+      update_existing_subscriptions: false;
+    },
+  ): Promise<void> {
+    // Paystack's update endpoint may return only a message, so it has no plan data to deserialize.
+    await this.request<unknown>(`update subscription plan ${planCode}`, () =>
+      this.client.put(`/plan/${encodeURIComponent(planCode)}`, payload),
+    );
+  }
+
   async fetchSubscription(code: string): Promise<PaystackSubscriptionData> {
     return this.request("retrieve subscription", () =>
       this.client.get(`/subscription/${encodeURIComponent(code)}`),
