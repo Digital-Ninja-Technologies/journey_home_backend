@@ -35,8 +35,11 @@ import { Payment } from "../models/payment.model";
 import { PaymentWorkerLease } from "../models/payment-worker-lease.model";
 
 const MAX_NOTIFICATION_ATTEMPTS = 10;
+// Keep completed outbox rows briefly for operational inspection, then let their TTL index remove them.
 const COMPLETED_RECORD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
+// This is the subset of Paystack's webhook body that the service stores and uses.
+// Keeping the shape local makes it clear which fields each supported event can rely on.
 interface PaystackWebhookPayload {
   event: string;
   data?: {
@@ -58,6 +61,7 @@ interface PaystackWebhookPayload {
 }
 
 export class PaymentService {
+  // Repositories own database queries; this service coordinates them with Paystack and business rules.
   private repository = new PaymentRepository();
 
   // Generates a unique payment reference with a purpose-specific prefix.
@@ -75,6 +79,7 @@ export class PaymentService {
     reference: string;
     alreadyPaid?: boolean;
   }> {
+    // Only the plan owner can start checkout, and the plan must exist before we can create a payment.
     const plan = await this.repository.findPlanForOwner(planId, ownerId);
     if (!plan) throw new NotFoundError("Plan not found");
 
@@ -83,7 +88,7 @@ export class PaymentService {
       ownerId,
     );
 
-    // If the plan is already active or existing payment is already successful, return early
+    // A previous successful payment means checkout is complete. Return the saved payment instead of charging again.
     if (
       plan.status === PlanStatus.ACTIVE ||
       existingPayment?.status === PaymentStatus.SUCCESSFUL
@@ -99,13 +104,14 @@ export class PaymentService {
       }
     }
 
-    // Only pending plans can start their initial payment checkout.
+    // Initial payment is a setup step, so active/cancelled/etc. plans cannot begin it again.
     if (plan.status !== PlanStatus.PENDING) {
       throw new BadRequestError(
         "Initial checkout is only available for pending plans",
       );
     }
 
+    // Paystack needs the owner's email and the package's Paystack plan code to initialize a subscription checkout.
     const user = await this.repository.findUserEmail(ownerId);
     if (!user?.email)
       throw new BadRequestError(
@@ -117,6 +123,7 @@ export class PaymentService {
       throw new BadRequestError("Package is not configured for subscriptions");
     const subscriptions = new SubscriptionRepository();
 
+    // Create the local subscription before contacting Paystack so later callbacks can be matched to this plan.
     let subscription = await subscriptions.findByPlan(plan._id);
 
     if (!subscription)
@@ -135,7 +142,7 @@ export class PaymentService {
       await subscription.save();
     }
 
-    // If an unpaid payment record already exists, check Paystack and reuse if still valid
+    // Reconcile an existing local checkout with Paystack before reusing it; local state may be stale after a callback failure.
     if (existingPayment) {
       const refToCheck =
         existingPayment.providerReference || existingPayment.reference;
@@ -145,6 +152,7 @@ export class PaymentService {
             refToCheck,
           );
           if (providerData.status?.toLowerCase() === "success") {
+            // Apply a confirmed success through the same idempotent path used by verification and webhooks.
             const applied = await this.applyProviderTransaction(providerData);
             return {
               payment: applied,
@@ -155,11 +163,13 @@ export class PaymentService {
             };
           }
           if (providerData.status?.toLowerCase() === "failed") {
+            // A definitive provider failure makes this checkout unusable, so persist it before creating a replacement.
             existingPayment.status = PaymentStatus.FAILED;
             existingPayment.failureMessage =
               providerData.gateway_response || "Payment failed";
             await existingPayment.save();
           } else if (providerData.status?.toLowerCase() === "abandoned") {
+            // Abandoned is non-final: refresh provider metadata but keep this payment reusable for another checkout attempt.
             const refreshed = await this.applyProviderTransaction(providerData);
             existingPayment.status = refreshed.status;
             existingPayment.failureMessage = refreshed.failureMessage;
@@ -167,11 +177,11 @@ export class PaymentService {
             existingPayment.metadata = refreshed.metadata;
           }
         } catch {
-          // If Paystack lookup fails (e.g. temporary timeout), proceed with saved checkout details
+          // If verification cannot be completed, keep the saved checkout details and let the caller retry the payment.
         }
       }
 
-      // If existing payment is still valid and has a saved checkout URL, reuse it
+      // Reuse the saved authorization URL unless Paystack confirmed the payment failed.
       const savedAuthUrl = existingPayment.metadata?.authorizationUrl as
         | string
         | undefined;
@@ -191,7 +201,7 @@ export class PaymentService {
       }
     }
 
-    // Reuse existing record if it is PENDING without an authorizationUrl, otherwise create a new record
+    // Reuse a pending record that has no checkout URL yet; otherwise start a fresh record after a definitive failure.
     const newOwnerId = new Types.ObjectId(ownerId);
     let payment =
       existingPayment && existingPayment.status === PaymentStatus.PENDING
@@ -208,7 +218,7 @@ export class PaymentService {
             status: PaymentStatus.PENDING,
           });
 
-    // Initialize checkout with Paystack and associate the transaction with the plan and payment.
+    // Send the amount, currency, plan code, and local IDs to Paystack so its later callbacks can be matched reliably.
     const initialized = await new PaystackService().initializeTransaction({
       email: user.email,
       amount: payment.amount,
@@ -223,6 +233,7 @@ export class PaymentService {
       },
     });
 
+    // Save Paystack's reference and checkout details locally before returning the checkout link to the caller.
     const metadata = {
       ...(payment.metadata || {}),
       planId: plan._id.toString(),
@@ -263,6 +274,7 @@ export class PaymentService {
   async applyProviderTransaction(
     providerData: PaystackTransactionData,
   ): Promise<IPayment> {
+    // Validate the provider response before using any value to locate or mutate a local payment.
     if (
       typeof providerData.reference !== "string" ||
       !providerData.reference.trim()
@@ -282,7 +294,7 @@ export class PaymentService {
     );
     if (!payment) throw new NotFoundError("Payment not found");
 
-    // Reject provider responses whose amount or currency differs from the recorded payment.
+    // The provider reference must identify the same exact charge amount and currency that we originally requested.
     if (
       providerData.amount !== payment.amount ||
       providerData.currency !== payment.currency
@@ -290,6 +302,7 @@ export class PaymentService {
       throw new BadRequestError("Payment verification mismatch");
     }
 
+    // Map provider statuses into final outcomes and retryable/non-final outcomes explicitly.
     if (typeof providerData.status !== "string" || !providerData.status.trim())
       throw new BadRequestError("Provider transaction status is missing");
     const status = providerData.status.toLowerCase();
@@ -305,7 +318,7 @@ export class PaymentService {
       throw new BadRequestError(
         `Unsupported Paystack transaction status: ${providerData.status}`,
       );
-    // A later reversal is visible in logs for reconciliation and never silently rewrites settled accounting.
+    // Successful payments are immutable here: a later reversal is recorded for manual reconciliation, not silently undone.
     if (payment.status === PaymentStatus.SUCCESSFUL) {
       if (status === "reversed") {
         await this.repository.updatePayment(payment._id, {
@@ -328,6 +341,7 @@ export class PaymentService {
       return payment;
     }
     if (nonFinal) {
+      // Pending-like statuses update provider details without applying plan contributions or emitting final notifications.
       const nextStatus =
         status === "pending" || status === "abandoned"
           ? PaymentStatus.PENDING
@@ -351,8 +365,10 @@ export class PaymentService {
     const subscriptions = new SubscriptionRepository();
     const session = await mongoose.startSession();
 
+    // Final payment state, plan totals/dates, subscription state, and notification intent must commit together.
     try {
       await session.withTransaction(async () => {
+        // Re-read inside the transaction because a webhook and frontend verification may race on this same payment.
         const current = await this.repository.findCurrentPayment(
           payment._id,
           session,
@@ -361,6 +377,7 @@ export class PaymentService {
         const nextStatus = successful
           ? PaymentStatus.SUCCESSFUL
           : PaymentStatus.FAILED;
+        // Prefer Paystack's payment timestamp; use server time only when the provider omitted an invalid date.
         const providerDateRaw = providerData.paid_at || providerData.created_at;
         const providerDate = providerDateRaw
           ? new Date(providerDateRaw)
@@ -389,12 +406,14 @@ export class PaymentService {
         if (!updated) return;
 
         if (successful) {
+          // Only a newly claimed success updates plan totals and activates its subscription.
           const plan = await this.repository.findPlanById(
             current.plan,
             session,
           );
           if (!plan) throw new NotFoundError("Plan not found");
 
+          // Prefer Paystack's next billing date; otherwise advance from the confirmed payment date.
           const providerNextDate = providerData.next_payment_date
             ? new Date(providerData.next_payment_date)
             : undefined;
@@ -414,6 +433,7 @@ export class PaymentService {
 
           const sub = await subscriptions.findByPlan(updated.plan, session);
 
+          // Keep the subscription schedule aligned with the plan after the payment has been confirmed.
           if (sub) {
             if (sub.status === SubscriptionStatus.PENDING) {
               sub.status = SubscriptionStatus.ACTIVE;
@@ -423,6 +443,7 @@ export class PaymentService {
             await sub.save({ session });
           }
         }
+        // Store a durable notification instruction in the same transaction, so a committed payment cannot lose its notice.
         const event =
           updated.purpose === PaymentPurpose.INITIAL
             ? successful
@@ -480,6 +501,7 @@ export class PaymentService {
     timestampedSignature?: string | string[] | undefined,
   ): Promise<{ status: string }> {
     const paystack = new PaystackService();
+    // Reject untrusted requests before saving anything for asynchronous processing.
     if (!paystack.verifySignature(rawBody, signature, timestampedSignature)) {
       throw new UnauthorizedError("Invalid Paystack signature");
     }
@@ -495,6 +517,7 @@ export class PaymentService {
       throw new BadRequestError("Invalid Paystack webhook payload");
     }
 
+    // Build a stable deduplication key from provider identifiers; hash the raw body as a fallback.
     const data = payload.data || {};
     const reference =
       typeof data.reference === "string" ? data.reference : undefined;
@@ -505,6 +528,7 @@ export class PaymentService {
       data.subscription_code ||
       data.subscription?.subscription_code;
     const eventKey = `${payload.event}:${stableId || crypto.createHash("sha256").update(rawBody!).digest("hex")}`;
+    // Store only fields needed by supported handlers, then acknowledge quickly; a worker processes the durable row.
     const safePayload = this.sanitizeWebhookPayload(payload);
     await this.repository.createPaystackEvent(
       eventKey,
@@ -518,6 +542,7 @@ export class PaymentService {
   private sanitizeWebhookPayload(
     payload: PaystackWebhookPayload,
   ): Record<string, unknown> {
+    // Normalize absent data to an empty object and whitelist nested object fields before persistence.
     const data = payload.data || {};
     const pickObject = (value: unknown, keys: string[]) => {
       if (!value || typeof value !== "object" || Array.isArray(value))
@@ -554,6 +579,7 @@ export class PaymentService {
   }
 
   async processNextWebhookEvent(): Promise<boolean> {
+    // Atomically claim one eligible event with a lease so competing app instances cannot process it simultaneously.
     const now = new Date();
     const lockToken = uuidv4();
     const event = await this.repository.claimPaystackEvent(
@@ -562,6 +588,7 @@ export class PaymentService {
       lockToken,
     );
     if (!event) return false;
+    // A malformed stored row cannot be replayed safely; mark it for operator reconciliation instead of retrying forever.
     if (!event.payload || typeof event.payload.event !== "string") {
       await this.repository.finishPaystackEvent(
         event._id,
@@ -576,6 +603,7 @@ export class PaymentService {
       return true;
     }
     try {
+      // Event handlers throw on retryable/unmatched cases; only a completed handler gets a terminal success state.
       const result = await this.processVerifiedWebhook(
         event.payload as unknown as PaystackWebhookPayload,
       );
@@ -585,6 +613,7 @@ export class PaymentService {
         result === "Ignored" ? "Ignored" : "Processed",
       );
     } catch (error: unknown) {
+      // Back off repeated failures and stop after 20 claims, leaving an exhausted row visible for reconciliation.
       const message = error instanceof Error ? error.message : String(error);
       const exhausted = event.attempts >= 20;
       const delayMs = Math.min(
@@ -612,6 +641,7 @@ export class PaymentService {
   }
 
   async processNextPaymentNotification(): Promise<boolean> {
+    // Claim one ready or lease-expired notification. The atomic update increments attempts and prevents duplicate workers.
     const now = new Date();
     const lockToken = uuidv4();
     const item = await PaymentNotificationOutbox.findOneAndUpdate(
@@ -647,6 +677,7 @@ export class PaymentService {
       { sort: { createdAt: 1 }, new: true },
     ).exec();
     if (!item) return false;
+    // The retry limit is a safety cap; exhausted rows remain available for investigation.
     if (item.attempts > MAX_NOTIFICATION_ATTEMPTS) {
       await PaymentNotificationOutbox.updateOne(
         { _id: item._id, lockToken },
@@ -662,6 +693,7 @@ export class PaymentService {
       return true;
     }
     try {
+      // Track email and in-app delivery separately so a retry only repeats the channel that still needs work.
       const notifications = new NotificationService();
       const content = {
         userId: item.userId.toString(),
@@ -671,6 +703,7 @@ export class PaymentService {
         message: item.message,
       };
       let emailStatus = item.emailStatus;
+      // Email providers may fail or be disabled; persist the channel result before attempting in-app delivery.
       if (emailStatus === "Pending" || emailStatus === "Failed") {
         const result =
           await notifications.sendEmailNotificationWithResult(content);
@@ -685,6 +718,7 @@ export class PaymentService {
           { $set: { emailStatus } },
         ).exec();
       }
+      // The notification service uses the dedupe key to make in-app creation safe to retry.
       if (item.inAppStatus !== "Sent") {
         await notifications.createInAppNotification(content);
         await PaymentNotificationOutbox.updateOne(
@@ -694,6 +728,7 @@ export class PaymentService {
       }
       if (emailStatus === "Failed")
         throw new Error("Payment notification email delivery failed");
+      // Retain successful outbox rows temporarily for diagnostics, then let the TTL index clean them up.
       await PaymentNotificationOutbox.updateOne(
         { _id: item._id, lockToken },
         {
@@ -705,6 +740,7 @@ export class PaymentService {
         },
       ).exec();
     } catch (error) {
+      // Retry with capped exponential backoff; after the maximum attempts, require manual review instead.
       const delay = Math.min(
         60_000 * 2 ** Math.min(item.attempts - 1, 6),
         3_600_000,
@@ -738,6 +774,7 @@ export class PaymentService {
   private async processVerifiedWebhook(
     payload: PaystackWebhookPayload,
   ): Promise<"Processed" | "Ignored"> {
+    // This method runs only after signature verification and durable event claiming have happened.
     const reference = payload.data?.reference;
     const event = {
       status: "Processing" as "Processing" | "Processed" | "Ignored",
@@ -745,6 +782,7 @@ export class PaymentService {
 
     try {
       if (payload.event === "subscription.create") {
+        // Link Paystack's subscription to exactly one pending local subscription using customer and plan identifiers.
         const data = payload.data || {};
 
         const customer =
@@ -838,6 +876,7 @@ export class PaymentService {
           );
         event.status = "Processed";
       } else if (payload.event === "charge.success") {
+        // Charge success is the authoritative event for applying an initial or recurring payment.
         if (!reference || !payload.data)
           throw new BadRequestError(
             "Paystack successful charge is missing its reference or data",
@@ -853,6 +892,7 @@ export class PaymentService {
           "subscription.disable",
         ].includes(payload.event)
       ) {
+        // Invoice/subscription lifecycle events update schedules and subscription state, not plan lifecycle state.
         const data = payload.data || {};
 
         const code =
@@ -863,6 +903,7 @@ export class PaymentService {
           : null;
         if (local) {
           let invoicePlan;
+          // A failed invoice is persisted as a separate recurring payment, so validate its invoice identity and value first.
           if (payload.event === "invoice.payment_failed") {
             if (!data.invoice_code)
               throw new BadRequestError(
@@ -885,6 +926,7 @@ export class PaymentService {
             data.subscription?.next_payment_date || data.next_payment_date;
 
           if (nextDate) {
+            // Paystack schedule updates are copied to both subscription and plan for consistent display.
             local.nextPaymentDate = new Date(nextDate);
             if (Number.isNaN(local.nextPaymentDate.getTime()))
               throw new BadRequestError(
@@ -913,6 +955,7 @@ export class PaymentService {
 
           await local.save();
 
+          // Invoice IDs are not transaction references; prefix them to keep this record in a separate identifier namespace.
           if (
             payload.event === "invoice.payment_failed" &&
             invoicePlan &&
@@ -941,6 +984,7 @@ export class PaymentService {
           );
         event.status = "Processed";
       } else if (payload.event === "charge.failed") {
+        // Treat charge.failed as supplemental information; never overwrite a payment already recorded as successful.
         if (!reference)
           throw new BadRequestError(
             "Failed Paystack charge is missing its reference",
@@ -959,11 +1003,13 @@ export class PaymentService {
         }
         event.status = "Processed";
       } else {
+        // Unsupported events are intentionally ignored and acknowledged so Paystack will not retry them.
         event.status = "Ignored";
       }
 
       return event.status;
     } catch (error: unknown) {
+      // Bubble failures to the queue processor, which records retry timing and eventual exhaustion.
       throw error;
     }
   }
@@ -971,6 +1017,7 @@ export class PaymentService {
   private async applyChargeSuccess(
     data: NonNullable<PaystackWebhookPayload["data"]>,
   ): Promise<void> {
+    // Existing references belong to a known payment, so verify and apply them through the standard idempotent path.
     const reference = String(data.reference || "");
     if (!reference) throw new BadRequestError("Provider reference is missing");
     const exists = await this.repository.findByProviderReference(reference);
@@ -988,6 +1035,7 @@ export class PaymentService {
         "Paystack subscription is not yet linked to a local plan; webhook will be retried",
       );
     }
+    // Unknown charge references are considered recurring only after Paystack verification ties them to this subscription.
     const providerData = await new PaystackService().verifyTransaction(
       reference,
     );
@@ -1014,6 +1062,7 @@ export class PaymentService {
     data: PaystackTransactionData,
     subscription: ISubscription,
   ) {
+    // A recurring payment row is created only from a verified success matching the linked plan's value.
     if (data.status?.toLowerCase() !== "success")
       throw new BadRequestError(
         "Recurring payment can only be created for a verified successful transaction",
@@ -1030,6 +1079,7 @@ export class PaymentService {
       data.reference,
     );
     if (existing) {
+      // Duplicate webhook deliveries reuse the existing record, but a reference linked elsewhere is an integrity error.
       if (
         existing.plan.toString() !== subscription.plan.toString() ||
         existing.purpose !== PaymentPurpose.RECURRING
@@ -1041,6 +1091,7 @@ export class PaymentService {
       return;
     }
     try {
+      // A unique provider reference protects against simultaneous deliveries that both found no existing row.
       await this.repository.createPayment({
         owner: subscription.owner,
         plan: subscription.plan,
@@ -1054,6 +1105,7 @@ export class PaymentService {
         status: PaymentStatus.PROCESSING,
       });
     } catch (error) {
+      // Treat a duplicate-key race as idempotent only if the winning row belongs to this same recurring plan.
       if ((error as { code?: number }).code !== 11000) throw error;
       const raced = await this.repository.findByProviderReference(
         data.reference,
@@ -1079,6 +1131,7 @@ export class PaymentService {
       to?: Date;
     },
   ): Promise<PaginatedResult<IPayment>> {
+    // Apply the repository's ownership and filter rules, then wrap results in the shared pagination response shape.
     const [items, total] = await this.repository.listForOwner(
       ownerId,
       options,
@@ -1097,6 +1150,7 @@ export class PaymentService {
       search?: string;
     },
   ) {
+    // Admin listing includes aggregate totals alongside the paginated payment rows.
     const result = await this.repository.listAll(options, filters);
     return {
       ...pageResult(result.items as IPayment[], result.total, options),
@@ -1105,6 +1159,7 @@ export class PaymentService {
   }
 
   async getForOwner(paymentId: string, ownerId: string): Promise<IPayment> {
+    // Scope lookup to the owner so one customer's payment ID cannot expose another customer's record.
     const payment = await this.repository.findForOwner(paymentId, ownerId);
     if (!payment) throw new NotFoundError("Payment not found");
     return payment;
@@ -1112,9 +1167,11 @@ export class PaymentService {
 }
 
 const PAYMENT_WORKER_LEASE_NAME = "paystack-webhook-and-notification-worker";
+// Lease is longer than normal work batches, and is refreshed after each job to recover if a process dies.
 const PAYMENT_WORKER_LEASE_MS = 90_000;
 
 async function acquirePaymentWorkerLease(ownerToken: string): Promise<boolean> {
+  // Take over only when the lease expired or this process already owns it.
   const now = new Date();
   const lease = await PaymentWorkerLease.findOneAndUpdate(
     {
@@ -1126,6 +1183,7 @@ async function acquirePaymentWorkerLease(ownerToken: string): Promise<boolean> {
   ).exec();
   if (lease) return true;
   try {
+    // The unique lease name lets one process create the first lease; duplicate-key means another process won.
     await PaymentWorkerLease.create({
       name: PAYMENT_WORKER_LEASE_NAME,
       ownerToken,
@@ -1139,6 +1197,7 @@ async function acquirePaymentWorkerLease(ownerToken: string): Promise<boolean> {
 }
 
 async function renewPaymentWorkerLease(ownerToken: string): Promise<boolean> {
+  // Renew only if the stored owner still matches; otherwise this worker must stop claiming jobs.
   const result = await PaymentWorkerLease.updateOne(
     { name: PAYMENT_WORKER_LEASE_NAME, ownerToken },
     { $set: { expiresAt: new Date(Date.now() + PAYMENT_WORKER_LEASE_MS) } },
@@ -1147,6 +1206,7 @@ async function renewPaymentWorkerLease(ownerToken: string): Promise<boolean> {
 }
 
 export function startPaystackWebhookWorker(): void {
+  // The local flag prevents overlapping polls within this process; the Mongo lease coordinates across processes.
   let running = false;
   const ownerToken = uuidv4();
   const service = new PaymentService();
@@ -1154,31 +1214,38 @@ export function startPaystackWebhookWorker(): void {
     if (running) return;
     running = true;
     try {
+      // Only the lease holder drains queues, in bounded batches, so polling does not monopolize the database.
       if (!(await acquirePaymentWorkerLease(ownerToken))) return;
+      // Handle webhook events first so payment state changes and their outbox instructions are produced promptly.
       for (let count = 0; count < 25; count += 1) {
         if (!(await service.processNextWebhookEvent())) break;
         if (!(await renewPaymentWorkerLease(ownerToken))) return;
       }
+      // Then send pending customer notifications created by the payment transactions.
       for (let count = 0; count < 25; count += 1) {
         if (!(await service.processNextPaymentNotification())) break;
         if (!(await renewPaymentWorkerLease(ownerToken))) return;
       }
     } catch (error) {
+      // Keep a transient job/database error from terminating future polling cycles.
       logger.error({ error }, "Paystack webhook worker failed");
     } finally {
       running = false;
     }
   };
+  // Run once during startup, then poll every 30 seconds to limit idle database reads.
   void poll();
   setInterval(() => void poll(), 30_000).unref();
 }
 
 export async function initializePaystackWebhookPersistence(): Promise<void> {
+  // Create the outbox collection explicitly; code 48 means it already exists and is safe to continue.
   try {
     await PaymentNotificationOutbox.createCollection();
   } catch (error) {
     if ((error as { code?: number }).code !== 48) throw error;
   }
+  // Ensure uniqueness and queue/TTL indexes exist before the worker starts claiming jobs.
   await PaystackEvent.createIndexes();
   await Payment.createIndexes();
   await PaymentNotificationOutbox.createIndexes();

@@ -57,7 +57,7 @@ const PaymentSchema = new Schema<IPayment>(
 
     reference: { type: String, required: true, unique: true, index: true },
 
-    providerReference: { type: String, unique: true, sparse: true },
+    providerReference: { type: String, unique: true},
 
     provider: {
       type: String,
