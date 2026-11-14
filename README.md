@@ -6,6 +6,26 @@
 ## Auth
 
 <details>
+<summary><strong>PATCH /auth/me — Update my profile</strong></summary>
+
+- **Method:** `PATCH`
+- **URL:** `/api/v1/auth/me`
+- **Auth:** Required
+
+Updates the authenticated user's profile. `name` and `phoneNumber` are optional, but at least one must be provided. Email and account role are not editable
+
+```json
+{
+  "name": "Ada Okafor",
+  "phoneNumber": "+2348012345678"
+}
+```
+
+Returns the updated profile using the same fields as `GET /auth/me`.
+
+</details>
+
+<details>
 <summary><strong>PATCH /auth/notification-preferences — Update notification preferences</strong></summary>
 
 - **Method:** `PATCH`
@@ -918,29 +938,6 @@ Verifies Paystack status, reference, amount, currency, and internal association 
 
 </details>
 
-<details>
-<summary><strong>POST /payments/webhooks/paystack — Paystack webhook</strong></summary>
-
-- **Method:** `POST`
-- **URL:** `/api/v1/payments/webhooks/paystack`
-- **Auth:** Paystack signature required
-
-Verifies `x-paystack-signature` against the raw request body using HMAC SHA512. Re-verifies `charge.success` transactions server-side, links `subscription.create` to the pending local subscription, and applies successful recurring charges once. Invoice events synchronize a provider-reported next payment date where present. Events are durably recorded; repeated or out-of-order events can be retried without double-counting a contribution.
-
-**Idempotency:** provider events are deduplicated by event name plus provider transaction reference/id. Duplicate deliveries do not double-count contributions.
-
-**Response (200):**
-
-```json
-{
-  "success": true,
-  "message": "Webhook processed",
-  "data": { "status": "Processed" }
-}
-```
-
-For an event already processed or ignored, `data.status` is `"duplicate"`.
-
 </details>
 
 <details>
@@ -1089,13 +1086,26 @@ Returns the authenticated user's in-app notifications, newest first. Supports `p
 </details>
 
 <details>
+<summary><strong>GET /notifications/admin — List operational notifications</strong></summary>
+
+- **Method:** `GET`
+- **URL:** `/api/v1/notifications/admin`
+- **Auth:** Required
+- **Authorization:** Admin or super admin
+- **Query Parameters:** Optional `page`, `limit` (maximum 100), `title`, `isRead=true|false`, `from`, and `to`
+
+Returns the authenticated admin's operational notifications newest first. This endpoint uses the same `items`, `pagination`, and `counts` response structure and filters as `GET /notifications`. It includes events for new plans, service requests, submitted service documents, and contact messages.
+
+</details>
+
+<details>
 <summary><strong>PATCH /notifications/:id/read — Mark notification as read</strong></summary>
 
 - **Method:** `PATCH`
 - **URL:** `/api/v1/notifications/:id/read`
 - **Auth:** Required
 
-Marks one notification owned by the authenticated user as read. Other users' notifications are not accessible.
+Marks one notification owned by the authenticated account as read. This works for customer and admin notifications; other accounts' notifications are not accessible.
 
 **Response (200):**
 
@@ -1126,7 +1136,7 @@ Marks one notification owned by the authenticated user as read. Other users' not
 - **URL:** `/api/v1/notifications/:id`
 - **Auth:** Required
 
-Deletes one notification owned by the authenticated user. Other users' notifications are not accessible.
+Deletes one notification owned by the authenticated account. This works for customer and admin notifications; other accounts' notifications are not accessible.
 
 **Response (200):**
 
@@ -2014,7 +2024,15 @@ May be used after a request is approved. Records the assigned photographer and a
 
 ### Example
 
-`PATCH /api/v1/service-requests/66f.../assign-photographer` with body `{"photographerName":"Adebayo Johnson"}`
+`PATCH /api/v1/service-requests/66f.../assign-photographer` 
+
+**Body**
+```json 
+{
+  "photographerName":"Adebayo Johnson",
+  "photographerPhoneNo": "09067637823"
+  }
+```
 
 **Response (200):**
 

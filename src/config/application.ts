@@ -44,9 +44,9 @@ export const env = {
    TIGRIS_SECRET_ACCESS_KEY: process.env.TIGRIS_SECRET_ACCESS_KEY || "",
    TIGRIS_BUCKET_NAME: process.env.TIGRIS_BUCKET_NAME || "nasas-empire-bucket",
 
-   EMAIL_SERVICE_URL:
-     process.env.EMAIL_SERVICE_URL ||
-     "https://email-service-one-alpha.vercel.app/api/mail/send",
+   RESEND_API_KEY: process.env.RESEND_API_KEY || "",
+   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || "Journey Home <no-reply@mail.journeyhomeng.com>",
+
    FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:3000",
    SUPER_ADMIN_EMAIL: process.env.SUPER_ADMIN_EMAIL || "",
 

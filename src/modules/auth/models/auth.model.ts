@@ -13,6 +13,7 @@ export interface IUser extends Document {
   role: UserRole;
   isSuperAdmin: boolean;
   name: string;
+  phoneNumber?: string;
   isEmailVerified: boolean;
   emailVerificationTokenHash?: string;
   emailVerificationExpiresAt?: Date;
@@ -48,6 +49,7 @@ const UserSchema = new Schema<IUser>(
     },
 
     name: { type: String, required: true, trim: true },
+    phoneNumber: { type: String, trim: true, maxlength: 30 },
     isEmailVerified: { type: Boolean, default: true },
     emailVerificationTokenHash: { type: String, select: false },
     emailVerificationExpiresAt: { type: Date, select: false },

@@ -32,6 +32,13 @@ export const NotificationPreferencesValidator = z.object({
   paymentReminders: z.boolean(), deficitAlerts: z.boolean(),
   serviceRequestUpdates: z.boolean(), productNewsOffers: z.boolean(),
 });
+export const UpdateProfileValidator = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  phoneNumber: z.string().trim().min(5).max(30).optional(),
+}).strict().refine((data) => data.name !== undefined || data.phoneNumber !== undefined, {
+  message: "At least one profile field must be provided",
+});
+export type UpdateProfileDto = z.infer<typeof UpdateProfileValidator>;
 export const CloseAccountValidator = z.object({ password: z.string().min(1) });
 
 export const ChangePasswordValidator = z.object({

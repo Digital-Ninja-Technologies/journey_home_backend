@@ -8,7 +8,7 @@ import {
 } from "../../../common/utils/pagination";
 import { Types } from "mongoose";
 import { notificationEmailTemplate } from "../../auth/templates/notification-email.template";
-import { NotificationEvent, INotification } from "../models/notification.model";
+import { NotificationEvent, INotification, ADMIN_NOTIFICATION_EVENTS } from "../models/notification.model";
 import {
   NotificationFilters,
   NotificationRepository,
@@ -123,6 +123,22 @@ const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
       title: "Product news and offers",
       message: "See the latest Journey Home packages and features.",
     },
+    [NotificationEvent.ADMIN_PLAN_CREATED]: {
+      title: "New plan created",
+      message: "A new plan has been created on the platform.",
+    },
+    [NotificationEvent.ADMIN_SERVICE_REQUEST_CREATED]: {
+      title: "New service request",
+      message: "A user just requested a service",
+    },
+    [NotificationEvent.ADMIN_SERVICE_DOCUMENT_SUBMITTED]: {
+      title: "Service document submitted",
+      message: "A document has been submitted for a service request.",
+    },
+    [NotificationEvent.ADMIN_CONTACT_SUBMITTED]: {
+      title: "New contact message",
+      message: "A new contact message has been received",
+    },
   };
 
 export class NotificationService {
@@ -202,12 +218,39 @@ export class NotificationService {
     return this.createInAppNotification(content);
   }
 
+  async notifyAdmins(content: Omit<NotificationContent, "userId">): Promise<void> {
+    const adminIds = await this.repository.findAdminIds();
+    await Promise.all(adminIds.map((adminId) => this.createInAppNotification({
+      ...content,
+      userId: adminId,
+      dedupeKey: `${content.dedupeKey}:${adminId}`,
+    })));
+  }
+
   async listForOwner(
     userId: string,
     options: PageOptions,
     filters: NotificationFilters,
   ): Promise<NotificationListResult> {
     const result = await this.repository.listForOwner(userId, options, filters);
+    return {
+      ...pageResult(result.items, result.filteredTotal, options),
+      counts: {
+        totalNotifications: result.totalNotifications,
+        totalUnreadNotifications: result.totalUnreadNotifications,
+      },
+    };
+  }
+
+  async listAdminNotifications(
+    userId: string,
+    options: PageOptions,
+    filters: Omit<NotificationFilters, "events">,
+  ): Promise<NotificationListResult> {
+    const result = await this.repository.listForOwner(userId, options, {
+      ...filters,
+      events: ADMIN_NOTIFICATION_EVENTS,
+    });
     return {
       ...pageResult(result.items, result.filteredTotal, options),
       counts: {
