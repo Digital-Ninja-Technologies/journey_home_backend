@@ -14,6 +14,7 @@ import {
 import { PaystackEvent } from "../models/paystack-event.model";
 import { Package } from "../../packages/models/package.model";
 import { PageOptions, escapeRegex } from "../../../common/utils/pagination";
+import { Subscription } from "../../subscriptions/models/subscription.model";
 
 export class PaymentRepository {
   findPlanForOwner(planId: string, ownerId: string) {
@@ -34,6 +35,10 @@ export class PaymentRepository {
     return email
       ? User.findOne({ email: email.toLowerCase() }).select("_id").lean()
       : null;
+  }
+
+  findOwnerByProviderCustomerCode(customerCode: string) {
+    return Subscription.findOne({ providerCustomerCode: customerCode }).select("owner").lean();
   }
 
   findPlanPackage(packageId: Types.ObjectId | string) {
@@ -78,10 +83,10 @@ export class PaymentRepository {
     return Payment.updateOne({ _id: id }, update, { session }).exec();
   }
 
-  findByProviderReference(reference: string) {
-    return Payment.findOne({
-      $or: [{ reference }, { providerReference: reference }],
-    }).exec();
+  async findByProviderReference(reference: string) {
+    const exactProviderReference = await Payment.findOne({ providerReference: reference }).exec();
+    if (exactProviderReference) return exactProviderReference;
+    return Payment.findOne({ reference }).exec();
   }
 
   findById(id: Types.ObjectId | string) {
@@ -92,6 +97,22 @@ export class PaymentRepository {
     return Payment.findOne({ _id: id }).session(session).exec();
   }
 
+  claimPaymentTransition(id: Types.ObjectId, status: PaymentStatus, fields: Partial<IPayment>, session: ClientSession) {
+    return Payment.findOneAndUpdate(
+      { _id: id, status: { $nin: [PaymentStatus.SUCCESSFUL, status] } },
+      { $set: { ...fields, status } },
+      { new: true, session },
+    ).exec();
+  }
+
+  updateNonFinalProviderStatus(id: Types.ObjectId, status: PaymentStatus.PENDING | PaymentStatus.PROCESSING, fields: Partial<IPayment>, allowFailed = false) {
+    return Payment.findOneAndUpdate(
+      { _id: id, status: { $in: allowFailed ? [PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.FAILED] : [PaymentStatus.PENDING, PaymentStatus.PROCESSING] } },
+      { $set: { ...fields, status }, ...(allowFailed ? { $unset: { failureMessage: 1, processedAt: 1 } } : {}) },
+      { new: true },
+    ).exec();
+  }
+
   savePayment(payment: IPayment, session?: ClientSession) {
     return payment.save({ session });
   }
@@ -100,6 +121,7 @@ export class PaymentRepository {
     id: Types.ObjectId,
     amountMinor: number,
     nextPaymentDate: Date | undefined,
+    paymentDate: Date,
     session: ClientSession,
   ) {
     return Plan.updateOne(
@@ -109,7 +131,7 @@ export class PaymentRepository {
         $set: {
           status: PlanStatus.ACTIVE,
           coverageStatus: CoverageStatus.COVERED,
-          lastPaymentAt: new Date(),
+          lastPaymentAt: paymentDate,
           ...(nextPaymentDate ? { nextPaymentDate } : {}),
         },
       },
@@ -117,31 +139,68 @@ export class PaymentRepository {
     ).exec();
   }
 
-  createPaystackEvent(eventKey: string, event: string, reference?: string) {
+  async createPaystackEvent(eventKey: string, event: string, reference: string | undefined, payload: Record<string, unknown>) {
+    try {
+      return await PaystackEvent.findOneAndUpdate(
+        { eventKey },
+        { $setOnInsert: { eventKey, event, reference, payload, status: "Pending", attempts: 0 } },
+        { upsert: true, new: true, rawResult: false },
+      ).exec();
+    } catch (error) {
+      if ((error as { code?: number }).code !== 11000) throw error;
+      return PaystackEvent.findOne({ eventKey }).exec();
+    }
+  }
+
+  claimPaystackEvent(now: Date, leaseUntil: Date, lockToken: string) {
     return PaystackEvent.findOneAndUpdate(
-      { eventKey },
-      { $setOnInsert: { eventKey, event, reference, status: "Processing" } },
-      { upsert: true, new: true, rawResult: false },
+      {
+        $or: [
+          { status: "Pending", $or: [{ nextAttemptAt: { $exists: false } }, { nextAttemptAt: { $lte: now } }] },
+          { status: "Failed", $or: [{ nextAttemptAt: { $exists: false } }, { nextAttemptAt: { $lte: now } }] },
+          { status: "Processing", $or: [{ leaseExpiresAt: { $lte: now } }, { leaseExpiresAt: { $exists: false } }] },
+        ],
+      },
+      { $set: { status: "Processing", lockToken, leaseExpiresAt: leaseUntil }, $inc: { attempts: 1 } },
+      { sort: { createdAt: 1 }, new: true },
     ).exec();
   }
 
-  savePaystackEvent(event: InstanceType<typeof PaystackEvent>) {
-    return event.save();
+  finishPaystackEvent(id: Types.ObjectId, lockToken: string, status: "Processed" | "Ignored" | "Failed" | "Exhausted", errorMessage?: string, nextAttemptAt?: Date) {
+    const completed = status === "Processed" || status === "Ignored";
+    return PaystackEvent.updateOne(
+      { _id: id, status: "Processing", lockToken },
+      {
+        $set: {
+          status,
+          errorMessage,
+          nextAttemptAt,
+          ...(completed ? { expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) } : {}),
+        },
+        $unset: {
+          lockToken: 1,
+          leaseExpiresAt: 1,
+          ...(completed ? {} : { expiresAt: 1 }),
+        },
+      },
+    ).exec();
   }
 
   markProviderFailure(reference: string, failureMessage: string | undefined) {
-    return Payment.updateOne(
-      {
-        $or: [{ reference }, { providerReference: reference }],
-        status: { $ne: PaymentStatus.SUCCESSFUL },
-      },
-      {
-        $set: {
-          status: PaymentStatus.FAILED,
-          failureMessage,
-          processedAt: new Date(),
-        },
-      },
+    const update = { $set: { status: PaymentStatus.FAILED, failureMessage, processedAt: new Date() } };
+    return Payment.findOne({ providerReference: reference }).select("_id").lean().then((providerPayment) => {
+      if (providerPayment) {
+        return Payment.updateOne({ _id: providerPayment._id, status: { $ne: PaymentStatus.SUCCESSFUL } }, update).exec();
+      }
+      return Payment.updateOne({ reference, status: { $ne: PaymentStatus.SUCCESSFUL } }, update).exec();
+    });
+  }
+
+  upsertFailedInvoicePayment(data: Partial<IPayment>) {
+    return Payment.findOneAndUpdate(
+      { providerReference: data.providerReference },
+      { $setOnInsert: data },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     ).exec();
   }
 

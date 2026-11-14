@@ -27,6 +27,8 @@ export interface NotificationListResult extends PaginatedResult<INotification> {
   counts: { totalNotifications: number; totalUnreadNotifications: number };
 }
 
+export type EmailNotificationResult = "sent" | "skipped" | "failed";
+
 const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
   {
     [NotificationEvent.PLAN_CREATED]: {
@@ -117,22 +119,54 @@ const eventCopy: Record<NotificationEvent, { title: string; message: string }> =
       message:
         "Your requested service has been marked complete. Contact support if you need any follow-up.",
     },
-    [NotificationEvent.PRODUCT_NEWS_OFFERS]: { title: "Product news and offers", message: "See the latest Journey Home packages and features." },
+    [NotificationEvent.PRODUCT_NEWS_OFFERS]: {
+      title: "Product news and offers",
+      message: "See the latest Journey Home packages and features.",
+    },
   };
 
 export class NotificationService {
   private repository = new NotificationRepository();
 
   async sendEmailNotification(content: NotificationContent): Promise<boolean> {
+    return (await this.sendEmailNotificationWithResult(content)) === "sent";
+  }
+
+  async sendEmailNotificationWithResult(
+    content: NotificationContent,
+  ): Promise<EmailNotificationResult> {
     const user = await this.repository.findUserContact(content.userId);
-    if (!user?.email) return false;
-    const preferenceRecord = await this.repository.getUserPreferences(content.userId);
+    if (!user?.email) return "skipped";
+    const preferenceRecord = await this.repository.getUserPreferences(
+      content.userId,
+    );
     const prefs = preferenceRecord?.notificationPreferences;
-    const paymentEvents = [NotificationEvent.UPCOMING_CONTRIBUTION, NotificationEvent.INITIAL_PAYMENT_SUCCESS, NotificationEvent.INITIAL_PAYMENT_FAILURE, NotificationEvent.RECURRING_PAYMENT_SUCCESS, NotificationEvent.RECURRING_PAYMENT_FAILURE, NotificationEvent.PAYMENT_OVERDUE, NotificationEvent.GRACE_PERIOD_STARTED, NotificationEvent.PAYMENT_RECOVERY_SUCCESS];
-    const serviceEvents = Object.values(NotificationEvent).filter(event => event.startsWith("Service"));
-    if (prefs && ((paymentEvents.includes(content.event) && !prefs.paymentReminders) || (content.event === NotificationEvent.PAYMENT_OVERDUE && !prefs.deficitAlerts) || (serviceEvents.includes(content.event) && !prefs.serviceRequestUpdates) || (content.event === NotificationEvent.PRODUCT_NEWS_OFFERS && !prefs.productNewsOffers))) return false;
+    const paymentEvents = [
+      NotificationEvent.UPCOMING_CONTRIBUTION,
+      NotificationEvent.INITIAL_PAYMENT_SUCCESS,
+      NotificationEvent.INITIAL_PAYMENT_FAILURE,
+      NotificationEvent.RECURRING_PAYMENT_SUCCESS,
+      NotificationEvent.RECURRING_PAYMENT_FAILURE,
+      NotificationEvent.PAYMENT_OVERDUE,
+      NotificationEvent.GRACE_PERIOD_STARTED,
+      NotificationEvent.PAYMENT_RECOVERY_SUCCESS,
+    ];
+    const serviceEvents = Object.values(NotificationEvent).filter((event) =>
+      event.startsWith("Service"),
+    );
+    if (
+      prefs &&
+      ((paymentEvents.includes(content.event) && !prefs.paymentReminders) ||
+        (content.event === NotificationEvent.PAYMENT_OVERDUE &&
+          !prefs.deficitAlerts) ||
+        (serviceEvents.includes(content.event) &&
+          !prefs.serviceRequestUpdates) ||
+        (content.event === NotificationEvent.PRODUCT_NEWS_OFFERS &&
+          !prefs.productNewsOffers))
+    )
+      return "skipped";
     const { title, message } = this.resolveContent(content);
-    return new EmailService().sendEmail(
+    const sent = await new EmailService().sendEmail(
       user.email,
       `Journey Home: ${title}`,
       content.emailHtml ||
@@ -142,6 +176,7 @@ export class NotificationService {
           message,
         }),
     );
+    return sent ? "sent" : "failed";
   }
 
   async createInAppNotification(
@@ -183,7 +218,6 @@ export class NotificationService {
   }
 
   async markRead(id: string, userId: string): Promise<INotification | null> {
-
     if (!Types.ObjectId.isValid(id))
       throw new BadRequestError("Invalid notification id");
 
@@ -195,15 +229,13 @@ export class NotificationService {
   }
 
   async delete(id: string, userId: string): Promise<INotification | null> {
-
     if (!Types.ObjectId.isValid(id))
-
       throw new BadRequestError("Invalid notification id");
-    
+
     const notification = await this.repository.deleteForOwner(id, userId);
 
     if (!notification) throw new NotFoundError("Notification not found");
-    
+
     return notification;
   }
 

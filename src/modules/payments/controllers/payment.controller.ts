@@ -46,7 +46,7 @@ export class PaymentController {
 
   webhook = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      successResponse(res, "Webhook processed", await this.service.processWebhook(req.body, req.rawBody, req.headers["x-paystack-signature"]));
+      successResponse(res, "Webhook accepted", await this.service.processWebhook(req.body, req.rawBody, req.headers["x-paystack-signature"], req.headers["paystack-signature"]));
     } catch (error) {
       next(error);
     }

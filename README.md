@@ -2122,6 +2122,10 @@ JWT_SECRET=change-me
 JWT_REFRESH_SECRET=change-me-too
 
 PAYSTACK_SECRET_KEY=sk_test_xxx
+# Timestamped webhook signing secrets from Paystack. Supports key rotation:
+# whk_current=whsec_current,whk_previous=whsec_previous
+PAYSTACK_WEBHOOK_SECRETS=
+PAYSTACK_WEBHOOK_TOLERANCE_SECONDS=300
 PAYSTACK_BASE_URL=https://api.paystack.co
 PAYSTACK_CALLBACK_URL=https://your-frontend.example.com/payments/callback
 FRONTEND_URL=https://your-frontend.example.com
@@ -2129,6 +2133,10 @@ FRONTEND_URL=https://your-frontend.example.com
 EMAIL_SERVICE_URL=https://email-service-one-alpha.vercel.app/api/mail/send
 SUPER_ADMIN_EMAIL=admin@example.com
 ```
+
+The Paystack webhook endpoint accepts both the legacy `x-paystack-signature` HMAC and the timestamped `Paystack-Signature` format. Configure `PAYSTACK_WEBHOOK_SECRETS` for the timestamped format; the value is a comma-separated list of secrets, optionally keyed by the webhook key ID (`whk_id=secret`) to support rotation. The endpoint acknowledges only after the sanitized event is durably stored. A MongoDB lease allows one backend instance to run the worker; it polls every 30 seconds and processes stored events with leases and retry backoff.
+
+At startup, the service creates/verifies the unique Paystack event, payment provider-reference, and in-app notification deduplication indexes and initializes the outbox and worker lease collections. Existing duplicate payment provider references or notification dedupe keys must be reconciled before deployment because their unique indexes cannot be created while duplicates remain. Completed webhook and notification outbox records expire after 90 days; failed and exhausted records are retained. Webhook events exhaust after 20 attempts, and payment notification delivery exhausts after 10 attempts; exhausted records are logged for review. An abandoned initial checkout remains pending and can reuse its saved checkout URL.
 
 ## Commands
 

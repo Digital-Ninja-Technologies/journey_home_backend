@@ -3,14 +3,14 @@ import {
   ISubscription,
   SubscriptionStatus,
 } from "../models/subscription.model";
-import { Types } from "mongoose";
+import { ClientSession, Types } from "mongoose";
 export class SubscriptionRepository {
   create(data: Partial<ISubscription>) {
     return Subscription.create(data);
   }
 
-  findByPlan(plan: Types.ObjectId | string) {
-    return Subscription.findOne({ plan }).exec();
+  findByPlan(plan: Types.ObjectId | string, session?: ClientSession) {
+    return Subscription.findOne({ plan }).session(session || null).exec();
   }
 
   findPendingForOwnerPlan(
