@@ -101,7 +101,7 @@ export class PaymentRepository {
     return Payment.findOneAndUpdate(
       { _id: id, status: { $nin: [PaymentStatus.SUCCESSFUL, status] } },
       { $set: { ...fields, status } },
-      { new: true, session },
+      { returnDocument: "after", session },
     ).exec();
   }
 
@@ -109,7 +109,7 @@ export class PaymentRepository {
     return Payment.findOneAndUpdate(
       { _id: id, status: { $in: allowFailed ? [PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.FAILED] : [PaymentStatus.PENDING, PaymentStatus.PROCESSING] } },
       { $set: { ...fields, status }, ...(allowFailed ? { $unset: { failureMessage: 1, processedAt: 1 } } : {}) },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
   }
 
@@ -144,7 +144,7 @@ export class PaymentRepository {
       return await PaystackEvent.findOneAndUpdate(
         { eventKey },
         { $setOnInsert: { eventKey, event, reference, payload, status: "Pending", attempts: 0 } },
-        { upsert: true, new: true, rawResult: false },
+        { upsert: true, returnDocument: "after", rawResult: false },
       ).exec();
     } catch (error) {
       if ((error as { code?: number }).code !== 11000) throw error;
@@ -162,7 +162,7 @@ export class PaymentRepository {
         ],
       },
       { $set: { status: "Processing", lockToken, leaseExpiresAt: leaseUntil }, $inc: { attempts: 1 } },
-      { sort: { createdAt: 1 }, new: true },
+      { sort: { createdAt: 1 }, returnDocument: "after" },
     ).exec();
   }
 
@@ -200,7 +200,7 @@ export class PaymentRepository {
     return Payment.findOneAndUpdate(
       { providerReference: data.providerReference },
       { $setOnInsert: data },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     ).exec();
   }
 

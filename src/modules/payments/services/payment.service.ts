@@ -674,7 +674,7 @@ export class PaymentService {
         },
         $inc: { attempts: 1 },
       },
-      { sort: { createdAt: 1 }, new: true },
+      { sort: { createdAt: 1 }, returnDocument: "after" },
     ).exec();
     if (!item) return false;
     // The retry limit is a safety cap; exhausted rows remain available for investigation.
@@ -1179,7 +1179,7 @@ async function acquirePaymentWorkerLease(ownerToken: string): Promise<boolean> {
       $or: [{ ownerToken }, { expiresAt: { $lte: now } }],
     },
     { $set: { ownerToken, expiresAt: new Date(now.getTime() + PAYMENT_WORKER_LEASE_MS) } },
-    { new: true },
+    { returnDocument: "after" },
   ).exec();
   if (lease) return true;
   try {

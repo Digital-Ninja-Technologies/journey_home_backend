@@ -29,14 +29,14 @@ export class FileRepository {
     status: FileStatus,
     extraFields?: { actualSize?: number; entityId?: string },
   ): Promise<IFile | null> {
-    return FileModel.findByIdAndUpdate(id, { status, ...extraFields }, { new: true }).exec();
+    return FileModel.findByIdAndUpdate(id, { status, ...extraFields }, { returnDocument: "after" }).exec();
   }
 
   async updateEntityId(id: string, entityId: string): Promise<IFile | null> {
-    return FileModel.findByIdAndUpdate(id, { entityId }, { new: true }).exec();
+    return FileModel.findByIdAndUpdate(id, { entityId }, { returnDocument: "after" }).exec();
   }
 
   async delete(id: string): Promise<IFile | null> {
-    return FileModel.findByIdAndUpdate(id, { status: FileStatus.DELETED }, { new: true }).exec();
+    return FileModel.findByIdAndUpdate(id, { status: FileStatus.DELETED }, { returnDocument: "after" }).exec();
   }
 }

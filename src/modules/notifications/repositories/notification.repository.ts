@@ -55,7 +55,7 @@ export class NotificationRepository {
           isRead: false,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     ).exec() as Promise<INotification>;
   }
 
@@ -102,7 +102,7 @@ export class NotificationRepository {
     return Notification.findOneAndUpdate(
       { _id: id, userId: new Types.ObjectId(userId) },
       { $set: { isRead: true } },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
   }
 

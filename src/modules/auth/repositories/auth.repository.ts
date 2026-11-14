@@ -49,7 +49,7 @@ export class UserRepository {
   }
 
   async update(id: string, updateData: Partial<IUser>): Promise<IUser | null> {
-    return User.findByIdAndUpdate(id, updateData, { new: true }).exec();
+    return User.findByIdAndUpdate(id, updateData, { returnDocument: "after" }).exec();
   }
 
   async deleteById(id: string): Promise<IUser | null> {

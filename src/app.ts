@@ -28,6 +28,9 @@ declare global {
 
 const app = express();
 
+// Render terminates requests at its proxy/load balancer; trust the nearest proxy so rate limiting can read client IPs.
+app.set("trust proxy", 1);
+
 // | Global Middlewares
 app.use(cors());
 

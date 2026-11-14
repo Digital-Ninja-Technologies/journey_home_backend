@@ -39,7 +39,7 @@ export class PackageRepository {
 
   update(id: string, data: Partial<IJourneyPackage>) {
     return Package.findByIdAndUpdate(id, data, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }).exec();
   }

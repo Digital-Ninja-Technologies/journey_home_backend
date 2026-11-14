@@ -70,7 +70,7 @@ export class SubscriptionRepository {
           startedAt: data.startedAt || new Date(),
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
   }
 

@@ -147,6 +147,6 @@ export class ServiceRequestRepository {
   }
 
   updateRequest(id: string, update: Record<string, unknown>) {
-    return ServiceRequest.findByIdAndUpdate(id, update, { new: true }).exec();
+    return ServiceRequest.findByIdAndUpdate(id, update, { returnDocument: "after" }).exec();
   }
 }
