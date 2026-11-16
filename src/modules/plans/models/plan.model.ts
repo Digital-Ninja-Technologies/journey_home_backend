@@ -45,6 +45,8 @@ export interface IPlan extends Document {
   startDate: Date;
   nextPaymentDate: Date;
   totalContributedAmount: number;
+  // Records which initial payment was allowed to activate this plan and count its first contribution.
+  initialPaymentId?: Types.ObjectId;
   status: PlanStatus;
   coverageStatus: CoverageStatus;
   lastPaymentAt?: Date;
@@ -123,6 +125,8 @@ const PlanSchema = new Schema<IPlan>(
       default: 0,
       min: 0,
     },
+
+    initialPaymentId: { type: Schema.Types.ObjectId, ref: "Payment" },
 
     status: {
       type: String,

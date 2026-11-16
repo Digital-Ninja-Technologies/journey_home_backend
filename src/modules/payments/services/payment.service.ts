@@ -1,6 +1,7 @@
 import mongoose, { Types } from "mongoose";
 import { v4 as uuidv4 } from "uuid";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
+import { ConflictError } from "../../../common/errors/ConflictError";
 import { UnauthorizedError } from "../../../common/errors/UnauthorizedError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { PlanStatus } from "../../plans/models/plan.model";
@@ -33,13 +34,13 @@ import { PaymentNotificationOutbox } from "../models/payment-notification-outbox
 import { PaystackEvent } from "../models/paystack-event.model";
 import { Payment } from "../models/payment.model";
 import { PaymentWorkerLease } from "../models/payment-worker-lease.model";
+import { IPaymentCheckoutLock } from "../models/payment-checkout-lock.model";
+import { PaymentCheckoutLock } from "../models/payment-checkout-lock.model";
 
 const MAX_NOTIFICATION_ATTEMPTS = 10;
-// Keep completed outbox rows briefly for operational inspection, then let their TTL index remove them.
+const INITIAL_CHECKOUT_URL_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;
 const COMPLETED_RECORD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
-// This is the subset of Paystack's webhook body that the service stores and uses.
-// Keeping the shape local makes it clear which fields each supported event can rely on.
 interface PaystackWebhookPayload {
   event: string;
   data?: {
@@ -79,6 +80,45 @@ export class PaymentService {
     reference: string;
     alreadyPaid?: boolean;
   }> {
+    // Serialize checkout creation per plan, so two Render instances cannot create parallel replacements.
+    const lockKey = `initial:${planId}`;
+    const lock = await this.acquireInitialCheckoutLock(lockKey);
+    try {
+      return await this.initializeInitialCheckoutWithLock(planId, ownerId, lock);
+    } finally {
+      // Release only this exact owner/version; if the lease was taken over, this cannot release the new owner's lock.
+      try {
+        await this.repository.releaseInitialCheckoutLock(lock);
+      } catch (error) {
+        // The lease still expires automatically, so a release outage must not hide a successfully created checkout.
+        logger.warn({ error, planId, fencingVersion: lock.fencingVersion }, "Could not release initial checkout lock");
+      }
+    }
+  }
+
+  private async acquireInitialCheckoutLock(key: string): Promise<IPaymentCheckoutLock> {
+    const ownerToken = uuidv4();
+    const deadline = Date.now() + 25_000;
+    // Briefly wait for another request to finish; every attempt is an atomic database claim.
+    while (Date.now() < deadline) {
+      const lock = await this.repository.acquireInitialCheckoutLock(key, ownerToken, new Date());
+      if (lock) return lock;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new ConflictError("Another checkout is being initialized; please retry shortly");
+  }
+
+  private async initializeInitialCheckoutWithLock(
+    planId: string,
+    ownerId: string,
+    lock: IPaymentCheckoutLock,
+  ): Promise<{
+    payment: IPayment;
+    authorizationUrl: string;
+    accessCode: string;
+    reference: string;
+    alreadyPaid?: boolean;
+  }> {
     // Only the plan owner can start checkout, and the plan must exist before we can create a payment.
     const plan = await this.repository.findPlanForOwner(planId, ownerId);
     if (!plan) throw new NotFoundError("Plan not found");
@@ -87,6 +127,22 @@ export class PaymentService {
       plan._id,
       ownerId,
     );
+
+    // Measure URL lifetime from Paystack initialization; older records without this timestamp are unsafe to reuse.
+    const checkoutInitializedAt = existingPayment?.metadata?.checkoutInitializedAt;
+    const checkoutInitializedAtDate = checkoutInitializedAt
+      ? new Date(
+          checkoutInitializedAt instanceof Date
+            ? checkoutInitializedAt.getTime()
+            : (checkoutInitializedAt as string | number),
+        )
+      : undefined;
+    const existingCheckoutExpiredByAge = !!existingPayment && (
+      !checkoutInitializedAtDate ||
+      Number.isNaN(checkoutInitializedAtDate.getTime()) ||
+      Date.now() - checkoutInitializedAtDate.getTime() >= INITIAL_CHECKOUT_URL_MAX_AGE_MS
+    );
+    let replaceExpiredCheckout = false;
 
     // A previous successful payment means checkout is complete. Return the saved payment instead of charging again.
     if (
@@ -135,6 +191,7 @@ export class PaymentService {
         providerPlanCode: pkg.paystackPlanCode,
         status: SubscriptionStatus.PENDING,
       });
+
     else if (subscription.status !== SubscriptionStatus.PENDING)
       throw new BadRequestError("A subscription already exists for this plan");
     else if (subscription.providerPlanCode !== pkg.paystackPlanCode) {
@@ -147,13 +204,21 @@ export class PaymentService {
       const refToCheck =
         existingPayment.providerReference || existingPayment.reference;
       if (refToCheck) {
+        let providerData: PaystackTransactionData | undefined;
         try {
-          const providerData = await new PaystackService().verifyTransaction(
+          providerData = await new PaystackService().verifyTransaction(
             refToCheck,
           );
-          if (providerData.status?.toLowerCase() === "success") {
-            // Apply a confirmed success through the same idempotent path used by verification and webhooks.
-            const applied = await this.applyProviderTransaction(providerData);
+        } catch {
+          // Reuse a young checkout during an outage; replace an expired URL even when verification fails.
+          if (existingCheckoutExpiredByAge) replaceExpiredCheckout = true;
+        }
+
+        if (providerData) {
+          // Apply every recognized provider status, then make decisions from the persisted local state.
+          const applied = await this.applyProviderTransaction(providerData);
+          const providerStatus = String(providerData.status).toLowerCase();
+          if (applied.status === PaymentStatus.SUCCESSFUL) {
             return {
               payment: applied,
               authorizationUrl: "",
@@ -162,26 +227,26 @@ export class PaymentService {
               alreadyPaid: true,
             };
           }
-          if (providerData.status?.toLowerCase() === "failed") {
-            // A definitive provider failure makes this checkout unusable, so persist it before creating a replacement.
-            existingPayment.status = PaymentStatus.FAILED;
-            existingPayment.failureMessage =
-              providerData.gateway_response || "Payment failed";
-            await existingPayment.save();
-          } else if (providerData.status?.toLowerCase() === "abandoned") {
-            // Abandoned is non-final: refresh provider metadata but keep this payment reusable for another checkout attempt.
-            const refreshed = await this.applyProviderTransaction(providerData);
-            existingPayment.status = refreshed.status;
-            existingPayment.failureMessage = refreshed.failureMessage;
-            existingPayment.processedAt = refreshed.processedAt;
-            existingPayment.metadata = refreshed.metadata;
+          if (providerStatus === "failed" || providerStatus === "reversed") {
+            // Definitive failures cannot reuse the old checkout, even if its URL is younger than two days.
+            replaceExpiredCheckout = true;
+          } else if (existingCheckoutExpiredByAge) {
+            // Replace old URLs for pending, abandoned, and processing transactions regardless of verification outcome.
+            replaceExpiredCheckout = true;
+          } else {
+            // Refresh the in-memory document from the committed status before considering its saved URL reusable.
+            existingPayment.status = applied.status;
+            existingPayment.failureMessage = applied.failureMessage;
+            existingPayment.processedAt = applied.processedAt;
+            existingPayment.metadata = applied.metadata;
           }
-        } catch {
-          // If verification cannot be completed, keep the saved checkout details and let the caller retry the payment.
         }
+      } else if (existingCheckoutExpiredByAge) {
+        // Without a provider reference, an old checkout cannot be verified, so replace its expired URL.
+        replaceExpiredCheckout = true;
       }
 
-      // Reuse the saved authorization URL unless Paystack confirmed the payment failed.
+      // Reuse the saved authorization URL only while it is inside the two-day validity window.
       const savedAuthUrl = existingPayment.metadata?.authorizationUrl as
         | string
         | undefined;
@@ -189,7 +254,11 @@ export class PaymentService {
       const savedAccessCode =
         (existingPayment.metadata?.accessCode as string | undefined) || "";
 
-      if (existingPayment.status !== PaymentStatus.FAILED && savedAuthUrl) {
+      if (
+        !replaceExpiredCheckout &&
+        existingPayment.status !== PaymentStatus.FAILED &&
+        savedAuthUrl
+      ) {
         return {
           payment: existingPayment,
           authorizationUrl: savedAuthUrl,
@@ -201,12 +270,15 @@ export class PaymentService {
       }
     }
 
-    // Reuse a pending record that has no checkout URL yet; otherwise start a fresh record after a definitive failure.
+    // Reuse a pending record only when its checkout is still reusable; otherwise create a fresh payment record.
     const newOwnerId = new Types.ObjectId(ownerId);
+    const replacingPayment = replaceExpiredCheckout ? existingPayment : undefined;
     let payment =
-      existingPayment && existingPayment.status === PaymentStatus.PENDING
+      existingPayment &&
+      existingPayment.status === PaymentStatus.PENDING &&
+      !replaceExpiredCheckout
         ? existingPayment
-        : await this.repository.createPayment({
+        : await this.repository.createInitialPaymentWithLock(lock, {
             owner: newOwnerId,
             plan: plan._id,
             amount: plan.amount,
@@ -216,9 +288,16 @@ export class PaymentService {
             provider: PaymentProvider.PAYSTACK,
             purpose: PaymentPurpose.INITIAL,
             status: PaymentStatus.PENDING,
-          });
+            metadata: replacingPayment
+              ? { replacesPaymentId: replacingPayment._id.toString() }
+              : undefined,
+      });
 
-    // Send the amount, currency, plan code, and local IDs to Paystack so its later callbacks can be matched reliably.
+    // Send IDs in Paystack metadata so callbacks can be matched to the exact local plan and payment.
+    // Renew first because Paystack's request timeout is bounded and must fit inside this lock lease.
+    if (!(await this.repository.renewInitialCheckoutLock(lock))) {
+      throw new ConflictError("Checkout initialization lock expired; please retry");
+    }
     const initialized = await new PaystackService().initializeTransaction({
       email: user.email,
       amount: payment.amount,
@@ -241,18 +320,32 @@ export class PaymentService {
       purpose: payment.purpose,
       authorizationUrl: initialized.authorization_url,
       accessCode: initialized.access_code,
+      checkoutInitializedAt: new Date(),
     };
 
-    await this.repository.updatePayment(payment._id, {
-      $set: {
-        providerReference: initialized.reference,
-        status: PaymentStatus.PENDING,
-        metadata,
-      },
-    });
+    // Commit Paystack's response and retire the old record under the same fencing check.
+    const saved = await this.repository.saveInitializedInitialCheckout(
+      lock,
+      payment._id,
+      initialized.reference,
+      metadata,
+      replacingPayment?._id,
+    );
     payment.providerReference = initialized.reference;
-    payment.status = PaymentStatus.PENDING;
+    payment.status = saved.replacedPaymentSucceeded
+      ? PaymentStatus.FAILED
+      : PaymentStatus.PENDING;
     payment.metadata = metadata;
+    if (saved.replacedPaymentSucceeded && saved.replacedPayment) {
+      // A delayed success may have landed while Paystack initialized the replacement; never hand out the new URL then.
+      return {
+        payment: saved.replacedPayment,
+        authorizationUrl: "",
+        accessCode: "",
+        reference: saved.replacedPayment.reference,
+        alreadyPaid: true,
+      };
+    }
 
     return {
       payment,
@@ -364,10 +457,13 @@ export class PaymentService {
     }
     const subscriptions = new SubscriptionRepository();
     const session = await mongoose.startSession();
+    let reconciliationRequired = false;
 
     // Final payment state, plan totals/dates, subscription state, and notification intent must commit together.
     try {
       await session.withTransaction(async () => {
+        // Reset this flag because MongoDB may retry the transaction callback after a write conflict.
+        reconciliationRequired = false;
         // Re-read inside the transaction because a webhook and frontend verification may race on this same payment.
         const current = await this.repository.findCurrentPayment(
           payment._id,
@@ -406,7 +502,7 @@ export class PaymentService {
         if (!updated) return;
 
         if (successful) {
-          // Only a newly claimed success updates plan totals and activates its subscription.
+          // Only one initial payment can claim the plan's first contribution, even if two references succeed.
           const plan = await this.repository.findPlanById(
             current.plan,
             session,
@@ -422,25 +518,115 @@ export class PaymentService {
               ? providerNextDate
               : addOneMonthPreservingBillingDay(paymentDate);
 
-          // Payment success activates the business plan and sets the next scheduled billing date.
-          await this.repository.updatePlanAfterPayment(
-            plan._id,
-            updated.amount,
-            nextPaymentDate,
-            paymentDate,
-            session,
-          );
+          let shouldActivateSubscription = updated.purpose === PaymentPurpose.RECURRING;
+          if (updated.purpose === PaymentPurpose.INITIAL) {
+            // Detect older successful records too, because pre-migration plans have no initialPaymentId yet.
+            const otherSuccess = await this.repository.findOtherSuccessfulInitialPayment(
+              plan._id,
+              updated._id,
+              session,
+            );
+            const alreadyClaimedBy = plan.initialPaymentId;
+            const initialSlotAlreadyTaken =
+              !!otherSuccess ||
+              (!!alreadyClaimedBy && !alreadyClaimedBy.equals(updated._id));
 
-          const sub = await subscriptions.findByPlan(updated.plan, session);
-
-          // Keep the subscription schedule aligned with the plan after the payment has been confirmed.
-          if (sub) {
-            if (sub.status === SubscriptionStatus.PENDING) {
-              sub.status = SubscriptionStatus.ACTIVE;
+            if (initialSlotAlreadyTaken) {
+              reconciliationRequired = true;
+              // Preserve the real successful charge, but don't count or activate a second initial contribution.
+              const winningPaymentId = otherSuccess?._id || alreadyClaimedBy;
+              await this.repository.updatePayment(
+                updated._id,
+                {
+                  $set: {
+                    "metadata.manualReconciliationRequired": true,
+                    "metadata.reconciliationReason": "multiple_successful_initial_payments",
+                    ...(winningPaymentId
+                      ? { "metadata.winningInitialPaymentId": winningPaymentId }
+                      : {}),
+                  },
+                },
+                session,
+              );
+              logger.error(
+                {
+                  paymentId: updated._id.toString(),
+                  planId: plan._id.toString(),
+                  winningPaymentId: winningPaymentId?.toString(),
+                },
+                "Multiple initial Paystack payments succeeded; the extra charge requires reconciliation",
+              );
+            } else {
+              // This conditional plan update is the database-level exactly-once gate for the first contribution.
+              const claim = await this.repository.claimInitialPlanPayment(
+                plan._id,
+                updated._id,
+                updated.amount,
+                nextPaymentDate,
+                paymentDate,
+                session,
+              );
+              if (claim.modifiedCount === 1) {
+                shouldActivateSubscription = true;
+                const replacementId = current.metadata?.replacedByPaymentId;
+                if (replacementId && Types.ObjectId.isValid(String(replacementId))) {
+                  // If this older checkout wins late, prevent its unpaid replacement from remaining payable locally.
+                  await this.repository.supersedePendingReplacement(
+                    new Types.ObjectId(String(replacementId)),
+                    updated._id,
+                    session,
+                  );
+                }
+              } else {
+                reconciliationRequired = true;
+                // Another transaction may have claimed the plan between our read and conditional update.
+                const latestPlan = await this.repository.findPlanById(plan._id, session);
+                const winningPaymentId = latestPlan?.initialPaymentId;
+                await this.repository.updatePayment(
+                  updated._id,
+                  {
+                    $set: {
+                      "metadata.manualReconciliationRequired": true,
+                      "metadata.reconciliationReason": "initial_payment_claim_lost",
+                      ...(winningPaymentId
+                        ? { "metadata.winningInitialPaymentId": winningPaymentId }
+                        : {}),
+                    },
+                  },
+                  session,
+                );
+                logger.error(
+                  {
+                    paymentId: updated._id.toString(),
+                    planId: plan._id.toString(),
+                    winningPaymentId: winningPaymentId?.toString(),
+                  },
+                  "Initial payment succeeded but could not claim the plan contribution; reconciliation is required",
+                );
+              }
             }
-            sub.lastPaymentAt = paymentDate;
-            sub.nextPaymentDate = nextPaymentDate;
-            await sub.save({ session });
+          } else {
+            // Recurring payments continue to add a contribution after the initial payment established the plan.
+            await this.repository.updatePlanAfterPayment(
+              plan._id,
+              updated.amount,
+              nextPaymentDate,
+              paymentDate,
+              session,
+            );
+          }
+
+          if (shouldActivateSubscription) {
+            const sub = await subscriptions.findByPlan(updated.plan, session);
+            // Keep the subscription schedule aligned with the confirmed payment and plan schedule.
+            if (sub) {
+              if (sub.status === SubscriptionStatus.PENDING) {
+                sub.status = SubscriptionStatus.ACTIVE;
+              }
+              sub.lastPaymentAt = paymentDate;
+              sub.nextPaymentDate = nextPaymentDate;
+              await sub.save({ session });
+            }
           }
         }
         // Store a durable notification instruction in the same transaction, so a committed payment cannot lose its notice.
@@ -456,6 +642,20 @@ export class PaymentService {
           style: "currency",
           currency: updated.currency,
         }).format(updated.amount / 100);
+        const notificationTitle = reconciliationRequired
+          ? "Payment received; reconciliation required"
+          : successful
+            ? updated.purpose === PaymentPurpose.INITIAL
+              ? "Initial contribution confirmed"
+              : "Plan contribution received"
+            : updated.purpose === PaymentPurpose.INITIAL
+              ? "Initial contribution needs attention"
+              : "Scheduled contribution could not be collected";
+        const notificationMessage = reconciliationRequired
+          ? `${amount} was received, but another initial payment already claimed this plan. The extra charge is being reviewed; your total contribution was not increased twice.`
+          : successful
+            ? `${amount} was confirmed for your plan. Your contribution history has been updated.`
+            : `We could not confirm ${amount} for your plan. Please review the payment status or contact support if you need help.`;
         await PaymentNotificationOutbox.updateOne(
           { dedupeKey: `${updated._id}:${event}` },
           {
@@ -463,16 +663,8 @@ export class PaymentService {
               dedupeKey: `${updated._id}:${event}`,
               userId: updated.owner,
               event,
-              title: successful
-                ? updated.purpose === PaymentPurpose.INITIAL
-                  ? "Initial contribution confirmed"
-                  : "Plan contribution received"
-                : updated.purpose === PaymentPurpose.INITIAL
-                  ? "Initial contribution needs attention"
-                  : "Scheduled contribution could not be collected",
-              message: successful
-                ? `${amount} was confirmed for your plan. Your contribution history has been updated.`
-                : `We could not confirm ${amount} for your plan. Please review the payment status or contact support if you need help.`,
+              title: notificationTitle,
+              message: notificationMessage,
               status: "Pending",
               attempts: 0,
               emailStatus: "Pending",
@@ -749,7 +941,10 @@ export class PaymentService {
         { _id: item._id, lockToken },
         {
           $set: {
-            status: item.attempts >= MAX_NOTIFICATION_ATTEMPTS ? "Exhausted" : "Failed",
+            status:
+              item.attempts >= MAX_NOTIFICATION_ATTEMPTS
+                ? "Exhausted"
+                : "Failed",
             ...(item.attempts < MAX_NOTIFICATION_ATTEMPTS
               ? { nextAttemptAt: new Date(Date.now() + delay) }
               : {}),
@@ -757,7 +952,9 @@ export class PaymentService {
           $unset: {
             lockToken: 1,
             leaseExpiresAt: 1,
-            ...(item.attempts >= MAX_NOTIFICATION_ATTEMPTS ? { nextAttemptAt: 1 } : {}),
+            ...(item.attempts >= MAX_NOTIFICATION_ATTEMPTS
+              ? { nextAttemptAt: 1 }
+              : {}),
           },
         },
       ).exec();
@@ -1178,7 +1375,12 @@ async function acquirePaymentWorkerLease(ownerToken: string): Promise<boolean> {
       name: PAYMENT_WORKER_LEASE_NAME,
       $or: [{ ownerToken }, { expiresAt: { $lte: now } }],
     },
-    { $set: { ownerToken, expiresAt: new Date(now.getTime() + PAYMENT_WORKER_LEASE_MS) } },
+    {
+      $set: {
+        ownerToken,
+        expiresAt: new Date(now.getTime() + PAYMENT_WORKER_LEASE_MS),
+      },
+    },
     { returnDocument: "after" },
   ).exec();
   if (lease) return true;
@@ -1250,5 +1452,7 @@ export async function initializePaystackWebhookPersistence(): Promise<void> {
   await Payment.createIndexes();
   await PaymentNotificationOutbox.createIndexes();
   await PaymentWorkerLease.createIndexes();
+  // Ensure the per-plan lock key is unique before requests attempt atomic checkout claims.
+  await PaymentCheckoutLock.createIndexes();
   await Notification.createIndexes();
 }

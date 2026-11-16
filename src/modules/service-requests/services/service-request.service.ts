@@ -320,12 +320,6 @@ export class ServiceRequestService {
         },
       });
 
-      await this.notifications.notifyAdmins({
-        event: NotificationEvent.ADMIN_SERVICE_DOCUMENT_SUBMITTED,
-        dedupeKey: `${document._id}:admin:submitted`,
-        message: `A ${dto.documentType.replace(/_/g, " ")} was submitted for service request ${request._id.toString()}.`,
-      });
-
       return document;
     } finally {
       await session.endSession();
