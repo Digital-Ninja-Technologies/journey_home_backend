@@ -4,6 +4,7 @@ import { env } from "../../../config/application";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { AppError } from "../../../common/errors/AppError";
 import { AxiosError } from "axios";
+import { logger } from "../../../common/logger/logger";
 
 export interface PaystackTransactionData {
   id?: number;
@@ -99,7 +100,10 @@ export class PaystackService {
     legacySignature: string | string[] | undefined,
     timestampedSignature?: string | string[] | undefined,
   ): boolean {
-    if (!rawBody) return false;
+    if (!rawBody) {
+      logger.warn("WEBHOOK_SIG: No raw body available for signature verification");
+      return false;
+    }
     const secureEquals = (expectedHex: string, receivedHex: string) => {
       if (!/^[a-f0-9]{128}$/i.test(receivedHex)) return false;
       const expected = Buffer.from(expectedHex, "hex");
@@ -109,16 +113,40 @@ export class PaystackService {
 
     if (typeof legacySignature === "string" && env.PAYSTACK_SECRET_KEY) {
       const expected = crypto.createHmac("sha512", env.PAYSTACK_SECRET_KEY).update(rawBody).digest("hex");
-      if (secureEquals(expected, legacySignature)) return true;
+      if (secureEquals(expected, legacySignature)) {
+        logger.info("WEBHOOK_SIG: Legacy signature verified successfully");
+        return true;
+      }
+      logger.warn("WEBHOOK_SIG: Legacy signature did not match");
     }
 
-    if (typeof timestampedSignature !== "string") return false;
+    if (typeof timestampedSignature !== "string") {
+      logger.warn(
+        {
+          hasLegacySig: typeof legacySignature === "string",
+          hasTimestampedSig: false,
+          hasSecretKey: !!env.PAYSTACK_SECRET_KEY,
+          rawBodyLength: rawBody.length,
+        },
+        "WEBHOOK_SIG_FAILED: No valid signature header matched",
+      );
+      return false;
+    }
     const fields = timestampedSignature.split(",").map((part) => part.trim());
     const timestamp = fields.map((part) => /^t=(\d+)$/.exec(part)).find(Boolean)?.[1];
-    if (!timestamp) return false;
+    if (!timestamp) {
+      logger.warn("WEBHOOK_SIG_FAILED: Timestamped signature has no t= field");
+      return false;
+    }
     const timestampSeconds = Number(timestamp);
     const tolerance = env.PAYSTACK_WEBHOOK_TOLERANCE_SECONDS;
-    if (!Number.isSafeInteger(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > tolerance) return false;
+    if (!Number.isSafeInteger(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > tolerance) {
+      logger.warn(
+        { timestampSeconds, tolerance, drift: Math.abs(Date.now() / 1000 - timestampSeconds) },
+        "WEBHOOK_SIG_FAILED: Timestamped signature outside tolerance window",
+      );
+      return false;
+    }
 
     const signatures = fields.flatMap((part) => {
       const match = /^v1=(?:(whk_[^:]+):)?([a-f0-9]{128})$/i.exec(part);
@@ -131,11 +159,25 @@ export class PaystackService {
         : { keyId: undefined, secret: entry.trim() };
     }).filter((entry) => entry.secret);
 
-    return signatures.some(({ keyId, signature }) => configured.some(({ keyId: configuredId, secret }) => {
+    const matched = signatures.some(({ keyId, signature }) => configured.some(({ keyId: configuredId, secret }) => {
       if (keyId && configuredId && keyId !== configuredId) return false;
       const expected = crypto.createHmac("sha512", secret).update(`${timestamp}.`).update(rawBody).digest("hex");
       return secureEquals(expected, signature);
     }));
+
+    if (!matched) {
+      logger.warn(
+        {
+          signatureCount: signatures.length,
+          configuredCount: configured.length,
+          hasWebhookSecrets: !!env.PAYSTACK_WEBHOOK_SECRETS,
+        },
+        "WEBHOOK_SIG_FAILED: No timestamped signature matched any configured secret",
+      );
+    } else {
+      logger.info("WEBHOOK_SIG: Timestamped signature verified successfully");
+    }
+    return matched;
   }
 
   async initializeTransaction(payload: {

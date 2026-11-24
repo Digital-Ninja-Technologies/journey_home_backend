@@ -6,6 +6,7 @@ const router = Router();
 const controller = new PaymentController();
 
 router.post("/webhooks/paystack", controller.webhook);
+router.get("/webhooks/status", authRequired, requireAdmin, controller.webhookStatus);
 router.post("/plans/:planId/initialize-initial", authRequired, controller.initializeInitial);
 router.post("/verify/:reference", authRequired, controller.verify);
 router.get("/", authRequired, controller.listMine);

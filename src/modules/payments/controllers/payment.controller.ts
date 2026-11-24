@@ -4,6 +4,9 @@ import { PaymentService } from "../services/payment.service";
 import { parsePageOptions, queryString } from "../../../common/utils/pagination";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { PaymentPurpose, PaymentStatus } from "../models/payment.model";
+import { PaystackEvent } from "../models/paystack-event.model";
+import { PaymentNotificationOutbox } from "../models/payment-notification-outbox.model";
+import { logger } from "../../../common/logger/logger";
 
 export class PaymentController {
   private service = new PaymentService();
@@ -44,9 +47,57 @@ export class PaymentController {
     }
   };
 
-  webhook = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  webhook = async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const event = req.body?.event || "unknown";
+    const reference = req.body?.data?.reference || "none";
+    logger.info(
+      {
+        event,
+        reference,
+        ip: req.ip,
+        hasRawBody: !!req.rawBody,
+        hasLegacySig: !!req.headers["x-paystack-signature"],
+        hasTimestampedSig: !!req.headers["paystack-signature"],
+      },
+      "WEBHOOK_RECEIVED: Paystack webhook hit the endpoint",
+    );
     try {
-      successResponse(res, "Webhook accepted", await this.service.processWebhook(req.body, req.rawBody, req.headers["x-paystack-signature"], req.headers["paystack-signature"]));
+      const result = await this.service.processWebhook(
+        req.body,
+        req.rawBody,
+        req.headers["x-paystack-signature"],
+        req.headers["paystack-signature"],
+      );
+      logger.info(
+        { event, reference, result },
+        "WEBHOOK_ACCEPTED: Webhook stored for async processing",
+      );
+      res.status(200).json({ success: true, message: "Webhook accepted", data: result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(
+        { event, reference, error: message },
+        "WEBHOOK_REJECTED: Webhook processing failed at the front door",
+      );
+      // Always return 200 so Paystack does not endlessly retry a payload we already logged.
+      // The error is captured above — that is the signal for investigation.
+      res.status(200).json({ success: true, message: "Webhook acknowledged" });
+    }
+  };
+
+  webhookStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const events = await PaystackEvent.find()
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .select("eventKey event reference status attempts errorMessage createdAt updatedAt")
+        .lean();
+      const outbox = await PaymentNotificationOutbox.find()
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .select("dedupeKey event status emailStatus inAppStatus attempts createdAt")
+        .lean();
+      successResponse(res, "Webhook status retrieved", { events, outbox });
     } catch (error) {
       next(error);
     }

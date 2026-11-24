@@ -722,11 +722,19 @@ export class PaymentService {
     const eventKey = `${payload.event}:${stableId || crypto.createHash("sha256").update(rawBody!).digest("hex")}`;
     // Store only fields needed by supported handlers, then acknowledge quickly; a worker processes the durable row.
     const safePayload = this.sanitizeWebhookPayload(payload);
+    logger.info(
+      { eventKey, event: payload.event, reference },
+      "WEBHOOK_PERSIST: Storing incoming Paystack webhook event to queue",
+    );
     await this.repository.createPaystackEvent(
       eventKey,
       payload.event,
       reference,
       safePayload,
+    );
+    logger.info(
+      { eventKey, event: payload.event, reference },
+      "WEBHOOK_PERSIST: Successfully saved event to queue",
     );
     return { status: "accepted" };
   }
@@ -780,6 +788,10 @@ export class PaymentService {
       lockToken,
     );
     if (!event) return false;
+    logger.info(
+      { eventKey: event.eventKey, event: event.event, reference: event.reference, attempt: event.attempts },
+      "WEBHOOK_WORKER: Claimed event from queue for processing",
+    );
     // A malformed stored row cannot be replayed safely; mark it for operator reconciliation instead of retrying forever.
     if (!event.payload || typeof event.payload.event !== "string") {
       await this.repository.finishPaystackEvent(
@@ -803,6 +815,10 @@ export class PaymentService {
         event._id,
         lockToken,
         result === "Ignored" ? "Ignored" : "Processed",
+      );
+      logger.info(
+        { eventKey: event.eventKey, event: event.event, reference: event.reference, outcome: result },
+        "WEBHOOK_WORKER: Finished processing event successfully",
       );
     } catch (error: unknown) {
       // Back off repeated failures and stop after 20 claims, leaving an exhausted row visible for reconciliation.
@@ -979,6 +995,7 @@ export class PaymentService {
 
     try {
       if (payload.event === "subscription.create") {
+        logger.info({ event: payload.event, reference }, "WEBHOOK_HANDLER: Handling subscription.create");
         // Link Paystack's subscription to exactly one pending local subscription using customer and plan identifiers.
         const data = payload.data || {};
 
@@ -1073,6 +1090,7 @@ export class PaymentService {
           );
         event.status = "Processed";
       } else if (payload.event === "charge.success") {
+        logger.info({ event: payload.event, reference, amount: payload.data?.amount }, "WEBHOOK_HANDLER: Handling charge.success");
         // Charge success is the authoritative event for applying an initial or recurring payment.
         if (!reference || !payload.data)
           throw new BadRequestError(
@@ -1418,6 +1436,7 @@ export function startPaystackWebhookWorker(): void {
     try {
       // Only the lease holder drains queues, in bounded batches, so polling does not monopolize the database.
       if (!(await acquirePaymentWorkerLease(ownerToken))) return;
+      logger.info({ ownerToken }, "WEBHOOK_POLL: Lease acquired, checking queue for pending events");
       // Handle webhook events first so payment state changes and their outbox instructions are produced promptly.
       for (let count = 0; count < 25; count += 1) {
         if (!(await service.processNextWebhookEvent())) break;

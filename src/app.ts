@@ -17,6 +17,7 @@ import cookieParser from "cookie-parser";
 import { errorHandler } from "./api/middlewares/error.middleware";
 import router from "./api/routes";
 import { createRateLimiter } from "./api/middlewares/rateLimit";
+import { PaymentController } from "./modules/payments/controllers/payment.controller";
 
 declare global {
   namespace Express {
@@ -47,6 +48,10 @@ app.use(express.json({
 }));
 
 app.use(express.urlencoded({ extended: true }));
+
+// Webhook route mounted BEFORE the rate limiter so Paystack is never throttled.
+const webhookController = new PaymentController();
+app.use("/api/v1/payments/webhooks/paystack", webhookController.webhook);
 
 // routes
 app.use("/api/v1", createRateLimiter(600, 15 * 60 * 1000));
