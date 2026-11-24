@@ -1308,7 +1308,7 @@ Customers can retrieve only their own requests. Admins can retrieve any request.
 
 Creates a pending private file record and returns a signed upload URL. Supported MIME types for service documents are `application/pdf`, `image/jpeg`, and `image/png`; max size is 10 MB.
 
-**Body:**
+**Body (e.g. Death Certificate):**
 
 ```json
 {
@@ -1316,6 +1316,17 @@ Creates a pending private file record and returns a signed upload URL. Supported
   "fileName": "death-certificate.pdf",
   "contentType": "application/pdf",
   "size": 420000
+}
+```
+
+**Body (e.g. Poster Upload):**
+
+```json
+{
+  "documentType": "Poster",
+  "fileName": "burial-poster.png",
+  "contentType": "image/png",
+  "size": 1500000
 }
 ```
 

@@ -15,6 +15,7 @@ export enum ServiceRequestStatus {
 export enum ServiceDocumentType {
   DEATH_CERTIFICATE = "Death_Certificate",
   VALID_IDENTIFICATION = "Valid_Identification",
+  POSTER = "Poster",
   OTHER_PROOF = "Other_Proof",
 }
 
