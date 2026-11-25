@@ -84,28 +84,43 @@ export class PaymentService {
     const lockKey = `initial:${planId}`;
     const lock = await this.acquireInitialCheckoutLock(lockKey);
     try {
-      return await this.initializeInitialCheckoutWithLock(planId, ownerId, lock);
+      return await this.initializeInitialCheckoutWithLock(
+        planId,
+        ownerId,
+        lock,
+      );
     } finally {
       // Release only this exact owner/version; if the lease was taken over, this cannot release the new owner's lock.
       try {
         await this.repository.releaseInitialCheckoutLock(lock);
       } catch (error) {
         // The lease still expires automatically, so a release outage must not hide a successfully created checkout.
-        logger.warn({ error, planId, fencingVersion: lock.fencingVersion }, "Could not release initial checkout lock");
+        logger.warn(
+          { error, planId, fencingVersion: lock.fencingVersion },
+          "Could not release initial checkout lock",
+        );
       }
     }
   }
 
-  private async acquireInitialCheckoutLock(key: string): Promise<IPaymentCheckoutLock> {
+  private async acquireInitialCheckoutLock(
+    key: string,
+  ): Promise<IPaymentCheckoutLock> {
     const ownerToken = uuidv4();
     const deadline = Date.now() + 25_000;
     // Briefly wait for another request to finish; every attempt is an atomic database claim.
     while (Date.now() < deadline) {
-      const lock = await this.repository.acquireInitialCheckoutLock(key, ownerToken, new Date());
+      const lock = await this.repository.acquireInitialCheckoutLock(
+        key,
+        ownerToken,
+        new Date(),
+      );
       if (lock) return lock;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    throw new ConflictError("Another checkout is being initialized; please retry shortly");
+    throw new ConflictError(
+      "Another checkout is being initialized; please retry shortly",
+    );
   }
 
   private async initializeInitialCheckoutWithLock(
@@ -129,7 +144,8 @@ export class PaymentService {
     );
 
     // Measure URL lifetime from Paystack initialization; older records without this timestamp are unsafe to reuse.
-    const checkoutInitializedAt = existingPayment?.metadata?.checkoutInitializedAt;
+    const checkoutInitializedAt =
+      existingPayment?.metadata?.checkoutInitializedAt;
     const checkoutInitializedAtDate = checkoutInitializedAt
       ? new Date(
           checkoutInitializedAt instanceof Date
@@ -137,11 +153,12 @@ export class PaymentService {
             : (checkoutInitializedAt as string | number),
         )
       : undefined;
-    const existingCheckoutExpiredByAge = !!existingPayment && (
-      !checkoutInitializedAtDate ||
-      Number.isNaN(checkoutInitializedAtDate.getTime()) ||
-      Date.now() - checkoutInitializedAtDate.getTime() >= INITIAL_CHECKOUT_URL_MAX_AGE_MS
-    );
+    const existingCheckoutExpiredByAge =
+      !!existingPayment &&
+      (!checkoutInitializedAtDate ||
+        Number.isNaN(checkoutInitializedAtDate.getTime()) ||
+        Date.now() - checkoutInitializedAtDate.getTime() >=
+          INITIAL_CHECKOUT_URL_MAX_AGE_MS);
     let replaceExpiredCheckout = false;
 
     // A previous successful payment means checkout is complete. Return the saved payment instead of charging again.
@@ -191,7 +208,6 @@ export class PaymentService {
         providerPlanCode: pkg.paystackPlanCode,
         status: SubscriptionStatus.PENDING,
       });
-
     else if (subscription.status !== SubscriptionStatus.PENDING)
       throw new BadRequestError("A subscription already exists for this plan");
     else if (subscription.providerPlanCode !== pkg.paystackPlanCode) {
@@ -272,7 +288,9 @@ export class PaymentService {
 
     // Reuse a pending record only when its checkout is still reusable; otherwise create a fresh payment record.
     const newOwnerId = new Types.ObjectId(ownerId);
-    const replacingPayment = replaceExpiredCheckout ? existingPayment : undefined;
+    const replacingPayment = replaceExpiredCheckout
+      ? existingPayment
+      : undefined;
     let payment =
       existingPayment &&
       existingPayment.status === PaymentStatus.PENDING &&
@@ -291,12 +309,14 @@ export class PaymentService {
             metadata: replacingPayment
               ? { replacesPaymentId: replacingPayment._id.toString() }
               : undefined,
-      });
+          });
 
     // Send IDs in Paystack metadata so callbacks can be matched to the exact local plan and payment.
     // Renew first because Paystack's request timeout is bounded and must fit inside this lock lease.
     if (!(await this.repository.renewInitialCheckoutLock(lock))) {
-      throw new ConflictError("Checkout initialization lock expired; please retry");
+      throw new ConflictError(
+        "Checkout initialization lock expired; please retry",
+      );
     }
     const initialized = await new PaystackService().initializeTransaction({
       email: user.email,
@@ -518,14 +538,16 @@ export class PaymentService {
               ? providerNextDate
               : addOneMonthPreservingBillingDay(paymentDate);
 
-          let shouldActivateSubscription = updated.purpose === PaymentPurpose.RECURRING;
+          let shouldActivateSubscription =
+            updated.purpose === PaymentPurpose.RECURRING;
           if (updated.purpose === PaymentPurpose.INITIAL) {
             // Detect older successful records too, because pre-migration plans have no initialPaymentId yet.
-            const otherSuccess = await this.repository.findOtherSuccessfulInitialPayment(
-              plan._id,
-              updated._id,
-              session,
-            );
+            const otherSuccess =
+              await this.repository.findOtherSuccessfulInitialPayment(
+                plan._id,
+                updated._id,
+                session,
+              );
             const alreadyClaimedBy = plan.initialPaymentId;
             const initialSlotAlreadyTaken =
               !!otherSuccess ||
@@ -540,7 +562,8 @@ export class PaymentService {
                 {
                   $set: {
                     "metadata.manualReconciliationRequired": true,
-                    "metadata.reconciliationReason": "multiple_successful_initial_payments",
+                    "metadata.reconciliationReason":
+                      "multiple_successful_initial_payments",
                     ...(winningPaymentId
                       ? { "metadata.winningInitialPaymentId": winningPaymentId }
                       : {}),
@@ -569,7 +592,10 @@ export class PaymentService {
               if (claim.modifiedCount === 1) {
                 shouldActivateSubscription = true;
                 const replacementId = current.metadata?.replacedByPaymentId;
-                if (replacementId && Types.ObjectId.isValid(String(replacementId))) {
+                if (
+                  replacementId &&
+                  Types.ObjectId.isValid(String(replacementId))
+                ) {
                   // If this older checkout wins late, prevent its unpaid replacement from remaining payable locally.
                   await this.repository.supersedePendingReplacement(
                     new Types.ObjectId(String(replacementId)),
@@ -580,16 +606,23 @@ export class PaymentService {
               } else {
                 reconciliationRequired = true;
                 // Another transaction may have claimed the plan between our read and conditional update.
-                const latestPlan = await this.repository.findPlanById(plan._id, session);
+                const latestPlan = await this.repository.findPlanById(
+                  plan._id,
+                  session,
+                );
                 const winningPaymentId = latestPlan?.initialPaymentId;
                 await this.repository.updatePayment(
                   updated._id,
                   {
                     $set: {
                       "metadata.manualReconciliationRequired": true,
-                      "metadata.reconciliationReason": "initial_payment_claim_lost",
+                      "metadata.reconciliationReason":
+                        "initial_payment_claim_lost",
                       ...(winningPaymentId
-                        ? { "metadata.winningInitialPaymentId": winningPaymentId }
+                        ? {
+                            "metadata.winningInitialPaymentId":
+                              winningPaymentId,
+                          }
                         : {}),
                     },
                   },
@@ -722,20 +755,14 @@ export class PaymentService {
     const eventKey = `${payload.event}:${stableId || crypto.createHash("sha256").update(rawBody!).digest("hex")}`;
     // Store only fields needed by supported handlers, then acknowledge quickly; a worker processes the durable row.
     const safePayload = this.sanitizeWebhookPayload(payload);
-    logger.info(
-      { eventKey, event: payload.event, reference },
-      "WEBHOOK_PERSIST: Storing incoming Paystack webhook event to queue",
-    );
+
     await this.repository.createPaystackEvent(
       eventKey,
       payload.event,
       reference,
       safePayload,
     );
-    logger.info(
-      { eventKey, event: payload.event, reference },
-      "WEBHOOK_PERSIST: Successfully saved event to queue",
-    );
+
     return { status: "accepted" };
   }
 
@@ -789,7 +816,12 @@ export class PaymentService {
     );
     if (!event) return false;
     logger.info(
-      { eventKey: event.eventKey, event: event.event, reference: event.reference, attempt: event.attempts },
+      {
+        eventKey: event.eventKey,
+        event: event.event,
+        reference: event.reference,
+        attempt: event.attempts,
+      },
       "WEBHOOK_WORKER: Claimed event from queue for processing",
     );
     // A malformed stored row cannot be replayed safely; mark it for operator reconciliation instead of retrying forever.
@@ -817,7 +849,12 @@ export class PaymentService {
         result === "Ignored" ? "Ignored" : "Processed",
       );
       logger.info(
-        { eventKey: event.eventKey, event: event.event, reference: event.reference, outcome: result },
+        {
+          eventKey: event.eventKey,
+          event: event.event,
+          reference: event.reference,
+          outcome: result,
+        },
         "WEBHOOK_WORKER: Finished processing event successfully",
       );
     } catch (error: unknown) {
@@ -995,7 +1032,6 @@ export class PaymentService {
 
     try {
       if (payload.event === "subscription.create") {
-        logger.info({ event: payload.event, reference }, "WEBHOOK_HANDLER: Handling subscription.create");
         // Link Paystack's subscription to exactly one pending local subscription using customer and plan identifiers.
         const data = payload.data || {};
 
@@ -1090,7 +1126,10 @@ export class PaymentService {
           );
         event.status = "Processed";
       } else if (payload.event === "charge.success") {
-        logger.info({ event: payload.event, reference, amount: payload.data?.amount }, "WEBHOOK_HANDLER: Handling charge.success");
+        logger.info(
+          { event: payload.event, reference, amount: payload.data?.amount },
+          "WEBHOOK_HANDLER: Handling charge.success",
+        );
         // Charge success is the authoritative event for applying an initial or recurring payment.
         if (!reference || !payload.data)
           throw new BadRequestError(
@@ -1436,7 +1475,10 @@ export function startPaystackWebhookWorker(): void {
     try {
       // Only the lease holder drains queues, in bounded batches, so polling does not monopolize the database.
       if (!(await acquirePaymentWorkerLease(ownerToken))) return;
-      logger.info({ ownerToken }, "WEBHOOK_POLL: Lease acquired, checking queue for pending events");
+      logger.info(
+        { ownerToken },
+        "WEBHOOK_POLL: Lease acquired, checking queue for pending events",
+      );
       // Handle webhook events first so payment state changes and their outbox instructions are produced promptly.
       for (let count = 0; count < 25; count += 1) {
         if (!(await service.processNextWebhookEvent())) break;

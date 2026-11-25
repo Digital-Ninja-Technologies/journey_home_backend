@@ -114,7 +114,7 @@ export class PaystackService {
     if (typeof legacySignature === "string" && env.PAYSTACK_SECRET_KEY) {
       const expected = crypto.createHmac("sha512", env.PAYSTACK_SECRET_KEY).update(rawBody).digest("hex");
       if (secureEquals(expected, legacySignature)) {
-        logger.info("WEBHOOK_SIG: Legacy signature verified successfully");
+
         return true;
       }
       logger.warn("WEBHOOK_SIG: Legacy signature did not match");
