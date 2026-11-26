@@ -3,6 +3,7 @@ import { successResponse } from "../../common/response/success-response";
 import { parsePageOptions, queryString } from "../../common/utils/pagination";
 import { BadRequestError } from "../../common/errors/BadRequestError";
 import { AdminDashboardService } from "./admin.service";
+import { runContributionReminders } from "../subscriptions/services/reminder-cron.service";
 
 export class AdminController {
 
@@ -48,6 +49,20 @@ export class AdminController {
           queryString(req.query.search),
         ),
       );
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  triggerReminders = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const refDateRaw = queryString(req.query.date);
+      const referenceDate = refDateRaw ? new Date(refDateRaw) : new Date();
+      if (Number.isNaN(referenceDate.getTime())) {
+        throw new BadRequestError("Invalid reference date");
+      }
+      const result = await runContributionReminders(referenceDate);
+      successResponse(res, "Contribution reminders triggered successfully", result);
     } catch (error) {
       next(error);
     }

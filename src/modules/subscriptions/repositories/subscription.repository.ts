@@ -93,7 +93,7 @@ export class SubscriptionRepository {
       nextPaymentDate: date,
     })
       .populate("owner", "email name")
-      .populate("plan", "packageSnapshot")
+      .populate("plan", "packageDetails amount currency")
       .exec();
   }
   
@@ -103,7 +103,7 @@ export class SubscriptionRepository {
       nextPaymentDate: { $gte: start, $lt: end },
     })
       .populate("owner", "email name")
-      .populate("plan", "packageSnapshot")
+      .populate("plan", "packageDetails amount currency")
       .exec();
   }
 }

@@ -6,4 +6,5 @@ const controller = new AdminController();
 router.use(authRequired, requireAdmin);
 router.get("/overview", controller.overview);
 router.get("/users", controller.users);
+router.post("/reminders/trigger", controller.triggerReminders);
 export default router;

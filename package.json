@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register src/server.ts",
+    "reminders:run": "ts-node -r tsconfig-paths/register src/scripts/run-reminders.ts",
     "build": "tsc && tsc-alias",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "start": "node dist/server.js"

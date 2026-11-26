@@ -1,4 +1,7 @@
 import mongoose, { Document, Schema, Types } from "mongoose";
+import "../../auth/models/auth.model";
+import "../../plans/models/plan.model";
+import "../../packages/models/package.model";
 
 export enum SubscriptionStatus {
   PENDING = "Pending",
