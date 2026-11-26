@@ -74,6 +74,12 @@ if (env.NODE_ENV === "production") {
   if (!env.PAYSTACK_SECRET_KEY) {
     throw new Error("PAYSTACK_SECRET_KEY is required in production");
   }
+  if (!env.PAYSTACK_CALLBACK_URL) {
+    throw new Error("PAYSTACK_CALLBACK_URL is required in production");
+  }
+  if (!env.FRONTEND_URL || env.FRONTEND_URL.includes("localhost")) {
+    throw new Error("A valid non-localhost FRONTEND_URL is required in production");
+  }
   if (env.BILLING_SCHEDULER_ENABLED && !env.BILLING_POLICY_CONFIGURED) {
     throw new Error("Billing scheduler cannot run in production until BILLING_POLICY_CONFIGURED=true");
   }

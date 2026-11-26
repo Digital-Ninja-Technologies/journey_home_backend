@@ -447,7 +447,7 @@ export class PaymentRepository {
   }
 
   finishPaystackEvent(id: Types.ObjectId, lockToken: string, status: "Processed" | "Ignored" | "Failed" | "Exhausted", errorMessage?: string, nextAttemptAt?: Date) {
-    const completed = status === "Processed" || status === "Ignored";
+    const isTerminal = status === "Processed" || status === "Ignored";
     return PaystackEvent.updateOne(
       { _id: id, status: "Processing", lockToken },
       {
@@ -455,12 +455,11 @@ export class PaymentRepository {
           status,
           errorMessage,
           nextAttemptAt,
-          ...(completed ? { expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) } : {}),
         },
         $unset: {
           lockToken: 1,
           leaseExpiresAt: 1,
-          ...(completed ? {} : { expiresAt: 1 }),
+          expiresAt: 1, // Keep all processed/terminal events permanently for deduplication and audit trail
         },
       },
     ).exec();

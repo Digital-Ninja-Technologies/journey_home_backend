@@ -5,7 +5,7 @@ import { ConflictError } from "../../../common/errors/ConflictError";
 import { UnauthorizedError } from "../../../common/errors/UnauthorizedError";
 import { ForbiddenError } from "../../../common/errors/ForbiddenError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
-import { PlanStatus } from "../../plans/models/plan.model";
+import { PlanStatus, Plan, CoverageStatus } from "../../plans/models/plan.model";
 import {
   Notification,
   NotificationEvent,
@@ -59,6 +59,7 @@ interface PaystackWebhookPayload {
     amount?: number;
     currency?: string;
     description?: string;
+    metadata?: Record<string, unknown>;
   };
 }
 
@@ -81,6 +82,11 @@ export class PaymentService {
     reference: string;
     alreadyPaid?: boolean;
   }> {
+    // Pre-validate that the plan exists and belongs to the requester BEFORE claiming the checkout lock.
+    // This prevents Denial-of-Payment attacks where an attacker acquires locks on other users' plans.
+    const plan = await this.repository.findPlanForOwner(planId, ownerId);
+    if (!plan) throw new NotFoundError("Plan not found");
+
     // Serialize checkout creation per plan, so two Render instances cannot create parallel replacements.
     const lockKey = `initial:${planId}`;
     const lock = await this.acquireInitialCheckoutLock(lockKey);
@@ -448,11 +454,13 @@ export class PaymentService {
       throw new BadRequestError(
         `Unsupported Paystack transaction status: ${providerData.status}`,
       );
-    // Successful payments are immutable here: a later reversal is recorded for manual reconciliation, not silently undone.
+    // Successful payments are immutable here: a later reversal suspends coverage and updates plan and payment status
     if (payment.status === PaymentStatus.SUCCESSFUL) {
       if (status === "reversed") {
         await this.repository.updatePayment(payment._id, {
           $set: {
+            status: PaymentStatus.FAILED,
+            failureMessage: providerData.gateway_response || "Payment was reversed by provider",
             "metadata.providerReversal": {
               detectedAt: new Date(),
               status,
@@ -460,12 +468,33 @@ export class PaymentService {
             },
           },
         });
+
+        // Deduct from total contributed amount and set coverage status under review
+        const session = await mongoose.startSession();
+        try {
+          await session.withTransaction(async () => {
+            await Plan.updateOne(
+              { _id: payment.plan },
+              {
+                $inc: { totalContributedAmount: -payment.amount },
+                $set: {
+                  coverageStatus: CoverageStatus.UNDER_REVIEW,
+                },
+              },
+              { session },
+            );
+          });
+        } finally {
+          await session.endSession();
+        }
+
         logger.error(
           {
             paymentId: payment._id.toString(),
             reference: providerData.reference,
+            amount: payment.amount,
           },
-          "Paystack reversed a previously successful payment; manual reconciliation is required",
+          "Paystack reversed a previously successful payment; deducted contributed amount and marked plan under review",
         );
       }
       return payment;
@@ -818,6 +847,7 @@ export class PaymentService {
         amount: data.amount,
         currency: (data as Record<string, unknown>).currency,
         description: data.description,
+        metadata: data.metadata,
       },
     };
   }
@@ -1095,12 +1125,27 @@ export class PaymentService {
               )
             : [];
 
-        if (candidates.length > 1)
+        let pending: ISubscription | undefined;
+        // Use data.metadata.planId if passed to uniquely identify which plan this subscription belongs to
+        const metadataPlanId = typeof data.metadata?.planId === "string" ? data.metadata.planId : undefined;
+        if (metadataPlanId) {
+          pending = candidates.find((c) => c.plan.toString() === metadataPlanId);
+          if (!pending && !existing) {
+            // Also check directly by plan id in case it wasn't captured in candidates
+            const byPlan = await new SubscriptionRepository().findByPlan(metadataPlanId);
+            if (byPlan && byPlan.status === SubscriptionStatus.PENDING) {
+              pending = byPlan;
+            }
+          }
+        }
+
+        if (!pending && candidates.length === 1) {
+          pending = candidates[0];
+        } else if (!pending && candidates.length > 1 && !existing) {
           throw new BadRequestError(
             "Paystack subscription cannot be matched to a unique pending Journey Home plan",
           );
-
-        const pending = candidates[0];
+        }
 
         if (
           data.subscription_code !== undefined &&

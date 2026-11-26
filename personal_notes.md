@@ -3,6 +3,5 @@
 2. check through the modules, everywhere an enum is found, create an enums folder and curresponding file then move the enum there, export and import where needed
 
 6. test recurring payment
-7. test that one week payment reminder emails are sent  
 
 ensure deleting a user also deletes everyhing related to them
