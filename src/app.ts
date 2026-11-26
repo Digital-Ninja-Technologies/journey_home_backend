@@ -18,6 +18,7 @@ import { errorHandler } from "./api/middlewares/error.middleware";
 import router from "./api/routes";
 import { createRateLimiter } from "./api/middlewares/rateLimit";
 import { PaymentController } from "./modules/payments/controllers/payment.controller";
+import { env } from "./config/application";
 
 declare global {
   namespace Express {
@@ -33,7 +34,24 @@ const app = express();
 app.set("trust proxy", 1);
 
 // | Global Middlewares
-app.use(cors());
+const allowedOrigins = [
+  env.FRONTEND_URL,
+  env.ADMIN_URL,
+  env.LANDINGPAGE_URL,
+  "http://localhost:5173",
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS policy violation: origin not allowed"), false);
+    },
+    credentials: true,
+  }),
+);
 
 app.use(helmet());
 

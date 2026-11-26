@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
 import { ConflictError } from "../../../common/errors/ConflictError";
 import { UnauthorizedError } from "../../../common/errors/UnauthorizedError";
+import { ForbiddenError } from "../../../common/errors/ForbiddenError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { PlanStatus } from "../../plans/models/plan.model";
 import {
@@ -377,15 +378,27 @@ export class PaymentService {
   }
 
   // Fetches the transaction status from Paystack before applying its result locally.
-  async verifyAndApply(reference: string): Promise<IPayment> {
+  async verifyAndApply(
+    reference: string,
+    expectedOwnerId?: string,
+    isAdmin?: boolean,
+  ): Promise<IPayment> {
+    if (expectedOwnerId && !isAdmin) {
+      const existing = await this.repository.findByProviderReference(reference);
+      if (existing && existing.owner.toString() !== expectedOwnerId) {
+        throw new ForbiddenError("You do not have permission to verify this payment");
+      }
+    }
     const providerData = await new PaystackService().verifyTransaction(
       reference,
     );
-    return this.applyProviderTransaction(providerData);
+    return this.applyProviderTransaction(providerData, expectedOwnerId, isAdmin);
   }
 
   async applyProviderTransaction(
     providerData: PaystackTransactionData,
+    expectedOwnerId?: string,
+    isAdmin?: boolean,
   ): Promise<IPayment> {
     // Validate the provider response before using any value to locate or mutate a local payment.
     if (
@@ -406,6 +419,10 @@ export class PaymentService {
       providerData.reference,
     );
     if (!payment) throw new NotFoundError("Payment not found");
+
+    if (expectedOwnerId && !isAdmin && payment.owner.toString() !== expectedOwnerId) {
+      throw new ForbiddenError("You do not have permission to verify this payment");
+    }
 
     // The provider reference must identify the same exact charge amount and currency that we originally requested.
     if (

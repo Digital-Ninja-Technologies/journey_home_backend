@@ -42,8 +42,7 @@ export type UpdateProfileDto = z.infer<typeof UpdateProfileValidator>;
 export const CloseAccountValidator = z.object({ password: z.string().min(1) });
 
 export const ChangePasswordValidator = z.object({
-  adminId: z.string().optional(),
-  email: z.string().email('Invalid email format').optional(),
+  currentPassword: z.string().min(1, 'Current password is required'),
   newPassword: z.string().min(6, 'Password must be at least 6 characters'),
 });
 

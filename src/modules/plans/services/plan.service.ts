@@ -1,5 +1,6 @@
 import mongoose, { Types } from "mongoose";
 import { BadRequestError } from "../../../common/errors/BadRequestError";
+import { ForbiddenError } from "../../../common/errors/ForbiddenError";
 import { NotFoundError } from "../../../common/errors/NotFoundError";
 import { PackageService } from "../../packages/services/package.service";
 import { PlanStatus, IPlan, CoverageStatus } from "../models/plan.model";
@@ -130,6 +131,18 @@ export class PlanService {
       throw new NotFoundError("Plan not found");
     }
 
+    return plan;
+  }
+
+  async getPlanForUser(
+    planId: string,
+    userId: string,
+    isAdmin: boolean,
+  ): Promise<IPlan> {
+    const plan = await this.getPlan(planId);
+    if (!isAdmin && plan.owner.toString() !== userId) {
+      throw new ForbiddenError("You do not have permission to view this plan");
+    }
     return plan;
   }
 

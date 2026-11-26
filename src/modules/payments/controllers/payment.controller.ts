@@ -60,10 +60,19 @@ export class PaymentController {
     next: NextFunction,
   ): Promise<void> => {
     try {
+      const isAdmin = Boolean(
+        req.user?.role === "admin" ||
+        req.user?.role === "super_admin" ||
+        req.user?.isSuperAdmin,
+      );
       successResponse(
         res,
         "Payment verified successfully",
-        await this.service.verifyAndApply(String(req.params.reference)),
+        await this.service.verifyAndApply(
+          String(req.params.reference),
+          req.user!.userId,
+          isAdmin,
+        ),
       );
     } catch (error) {
       next(error);
@@ -98,9 +107,18 @@ export class PaymentController {
         { event, reference, error: message },
         "WEBHOOK_REJECTED: Webhook processing failed at the front door",
       );
-      // Always return 200 so Paystack does not endlessly retry a payload we already logged.
-      // The error is captured above — that is the signal for investigation.
-      res.status(200).json({ success: true, message: "Webhook acknowledged" });
+      // Return 401/400 for client/signature issues (so attackers or bad payloads don't get retried indefinitely)
+      // but rethrow/return 500 on transient database or infrastructure failures so Paystack retries dropped webhooks
+      if (
+        message.includes("signature") ||
+        message.includes("Invalid Paystack") ||
+        message.includes("payload")
+      ) {
+        res.status(200).json({ success: true, message: "Webhook acknowledged" });
+        return;
+      }
+      // For database / transient server crashes, return 500 to let Paystack retry
+      res.status(500).json({ success: false, message: "Internal error processing webhook" });
     }
   };
 

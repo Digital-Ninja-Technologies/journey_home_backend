@@ -71,12 +71,18 @@ export class AuthService {
 
     // hash password
     const passwordHash = await hashPassword(dto.password);
+    // Customers and covered persons can sign up; administrative roles cannot be self-assigned
+    const safeRole =
+      dto.role === UserRole.COVERED_PERSON
+        ? UserRole.COVERED_PERSON
+        : UserRole.CUSTOMER;
+
     // create the user
     const user = await this.userRepo.create({
       email: dto.email.toLowerCase(),
       passwordHash,
-      role: dto.role,
-      isSuperAdmin: dto.role === UserRole.SUPER_ADMIN ? true : false,
+      role: safeRole,
+      isSuperAdmin: false,
       isEmailVerified: false,
       name: dto.name.trim(),
     });

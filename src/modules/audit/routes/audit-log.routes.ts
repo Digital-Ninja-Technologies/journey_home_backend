@@ -9,6 +9,5 @@ router.use(authRequired, requireAdmin);
 
 router.get("/", controller.getAll);
 router.get("/:id", controller.getOne);
-router.delete("/:id", controller.deleteLog);
 
 export default router;

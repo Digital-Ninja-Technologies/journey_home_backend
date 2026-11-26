@@ -77,8 +77,16 @@ export class PlanController {
   ): Promise<void> => {
     try {
       const planId = req.params.id as string;
-
-      const result = await this.service.getPlan(planId);
+      const isAdmin = Boolean(
+        req.user?.role === UserRole.ADMIN ||
+        req.user?.role === UserRole.SUPER_ADMIN ||
+        req.user?.isSuperAdmin,
+      );
+      const result = await this.service.getPlanForUser(
+        planId,
+        req.user!.userId,
+        isAdmin,
+      );
 
       successResponse(res, "Plan retrieved successfully", result);
     } catch (error) {

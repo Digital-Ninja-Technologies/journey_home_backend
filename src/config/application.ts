@@ -28,7 +28,10 @@ function booleanEnv(name: string, fallback: boolean): boolean {
 }
 
 export const env = {
-    NODE_ENV: process.env.NODE_ENV || "development",
+  NODE_ENV: process.env.NODE_ENV || "development",
+  ADMIN_URL: process.env.ADMIN_URL,
+  LANDINGPAGE_URL: process.env.LANDINGPAGE_URL,
+
 
     PORT: Number(process.env.APP_PORT) || 3044,
 
